@@ -1,0 +1,304 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// --- CORE IDENTITY & ACCESS ---
+
+model Organization {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  users       User[]
+  athletes    Athlete[]
+  roles       Role[]
+}
+
+model User {
+  id             String        @id @default(uuid())
+  email          String        @unique
+  password       String
+  name           String
+  isActive       Boolean       @default(true)
+  
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  
+  roleId         String
+  role           Role          @relation(fields: [roleId], references: [id])
+  
+  notifications  Notification[]
+  activityLogs   ActivityLog[]
+  reportsCreated MedicalReport[] @relation("ReportCreator")
+  
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+model Role {
+  id             String       @id @default(uuid())
+  name           String
+  description    String?
+  
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  
+  permissions    Permission[]
+  users          User[]
+
+  @@unique([name, organizationId])
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  action      String   // e.g., "REPORT_CREATE", "ATHLETE_VIEW"
+  resource    String   // e.g., "MEDICAL_REPORTS", "ATHLETES"
+  roles       Role[]
+}
+
+// --- ATHLETE DOMAIN ---
+
+enum AthleteStatus {
+  ACTIVE
+  SUSPENDED
+  RETIRED
+  UNDER_INVESTIGATION
+}
+
+model Athlete {
+  id              String        @id @default(uuid())
+  externalId      String?       @unique 
+  name            String
+  dateOfBirth     DateTime
+  gender          String
+  nationality     String
+  sport           String
+  status          AthleteStatus @default(ACTIVE)
+  
+  organizationId  String
+  organization    Organization  @relation(fields: [organizationId], references: [id])
+  
+  medicalProfile  AthleteMedicalProfile?
+  
+  reports         MedicalReport[]
+  riskAssessments RiskAssessment[]
+  biologicalPassport BiologicalPassport?
+  alerts          Alert[]
+  aiPredictions   AIPrediction[]
+  inspections     Inspection[]
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  deletedAt       DateTime?     
+}
+
+model Inspection {
+  id              String   @id @default(uuid())
+  title           String
+  description     String?
+  status          String   @default("OPEN") // OPEN, IN_PROGRESS, CLOSED, ESCALATED
+  priority        String   @default("MEDIUM") // LOW, MEDIUM, HIGH, CRITICAL
+  
+  athleteId       String
+  athlete         Athlete  @relation(fields: [athleteId], references: [id])
+  
+  assignedTo      String?  // Analyst Name
+  findings        String?  // Rich text findings
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model AthleteMedicalProfile {
+  id        String   @id @default(uuid())
+  athleteId String   @unique
+  athlete   Athlete  @relation(fields: [athleteId], references: [id])
+  
+  bloodType String?
+  allergies String?  
+  history   String?  
+  
+  updatedAt DateTime @updatedAt
+}
+
+// --- MEDICAL INTELLIGENCE ---
+
+enum ReportType {
+  BLOOD
+  URINE
+  BIOLOGICAL_PASSPORT
+  WEARABLE_LOG
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWING
+  COMPLETED
+  FLAGGED
+  ARCHIVED
+}
+
+model MedicalReport {
+  id             String       @id @default(uuid())
+  type           ReportType
+  status         ReportStatus @default(PENDING)
+  description    String?
+  
+  athleteId      String
+  athlete        Athlete      @relation(fields: [athleteId], references: [id])
+  
+  creatorId      String
+  creator        User         @relation("ReportCreator", fields: [creatorId], references: [id])
+  
+  // INGESTION ENHANCEMENTS
+  fileUrl           String?
+  fileName          String?
+  fileType          String?      // pdf, jpg, png, csv
+  
+  ocrRawText        String?      // Full extracted text
+  extractedJSON     String?      // Structured data before validation
+  
+  ocrConfidence     Float?       @default(0)
+  parsingConfidence Float?       @default(0)
+  extractionQuality String?      // EXCELLENT, GOOD, POOR
+  
+  validationStatus  String?      @default("PENDING") // VALID, INVALID, INCOMPLETE
+  validationNotes   String?
+  
+  testResults    TestResult[]
+  
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
+
+model TestResult {
+  id              String        @id @default(uuid())
+  reportId        String
+  report          MedicalReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  
+  parameter       String        
+  value           Float
+  unit            String
+  isAtypical      Boolean       @default(false)
+  deviation       Float?        
+  
+  createdAt       DateTime      @default(now())
+}
+
+model BiologicalPassport {
+  id        String   @id @default(uuid())
+  athleteId String   @unique
+  athlete   Athlete  @relation(fields: [athleteId], references: [id])
+  
+  hematologicalMarkers String 
+  steroidalMarkers     String 
+  lastAnalyzedAt       DateTime
+}
+
+// --- ANALYTICS & MONITORING ---
+
+model RiskAssessment {
+  id         String   @id @default(uuid())
+  athleteId  String
+  athlete    Athlete  @relation(fields: [athleteId], references: [id])
+  
+  score      Float
+  category   String   
+  modelName  String   @default("V1_HEURISTIC") 
+  findings   String   
+  
+  createdAt  DateTime @default(now())
+}
+
+model Alert {
+  id         String   @id @default(uuid())
+  athleteId  String
+  athlete    Athlete  @relation(fields: [athleteId], references: [id])
+  
+  severity   String   
+  message    String
+  isResolved Boolean  @default(false)
+  resolvedAt DateTime?
+  
+  createdAt  DateTime @default(now())
+}
+
+// --- OBSERVE & AUDIT ---
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  
+  title     String
+  content   String
+  isRead    Boolean  @default(false)
+  type      String   
+  
+  createdAt DateTime @default(now())
+}
+
+model ActivityLog {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  
+  action    String   
+  details   String?  
+  ipAddress String?
+  
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  tableName   String
+  recordId    String
+  operation   String   
+  oldValue    String?  
+  newValue    String?  
+  changedBy   String   
+  
+  createdAt   DateTime @default(now())
+}
+
+model AIPrediction {
+  id                String   @id @default(uuid())
+  athleteId         String
+  athlete           Athlete  @relation(fields: [athleteId], references: [id])
+  
+  riskLevel         String   
+  riskProbability   String   
+  
+  isAnomaly         Boolean
+  anomalyScore      Float
+  isAtypical        Boolean
+  
+  explanation       String   
+  featureImportance String   
+  
+  // XAI Enhancements
+  confidenceScore   Float    @default(0)
+  reliabilityLabel  String   @default("UNRELIABLE") // HIGH, MODERATE, LOW
+  stabilityIndex    Float    @default(0)
+  reasoningJSON     String?  // Detailed medical reasoning chunks
+  longitudinalData  String?  // Trends and historical delta JSON
+  uncertaintyData   String?  // Uncertainty metrics 
+  
+  modelInfo         String   
+  
+  createdAt         DateTime @default(now())
+}
+
