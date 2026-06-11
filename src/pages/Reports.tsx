@@ -387,8 +387,8 @@ export default function Reports() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-6">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <span className="h-2 w-2 rounded-full bg-blue-500 animate-ping" />
-            <h1 className="text-3xl font-black text-slate-100 tracking-tight uppercase">Clinical Intelligence Command Center</h1>
+            <span className="h-2 w-2 rounded-full bg-blue-600 " />
+           <h1 className="text-3xl font-black text-white tracking-tight uppercase">Clinical Intelligence Command Center</h1>
           </div>
           <p className="text-slate-400 text-xs font-mono">NEXUS ANTI-DOPING CORE // BIOMARKER MATRIX INGESTION FEED & PASSPORT RECONCILIATION</p>
         </div>
