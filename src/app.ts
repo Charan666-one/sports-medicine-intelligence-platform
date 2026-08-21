@@ -36,6 +36,14 @@ export async function createApp() {
   // API Route Scalability Pattern: API Versioning
   app.use('/api/v1', apiV1Routes);
 
+  // API 404 — must run BEFORE the SPA/Vite fallback, otherwise unknown
+  // `/api/*` requests are answered with the frontend HTML shell (which then
+  // fails JSON parsing on the client). Scoping it to `/api` keeps real
+  // frontend routes flowing through to the SPA.
+  app.use('/api', (req, res, next) => {
+    next(new NotFoundError(`Cannot find ${req.originalUrl} on this server`));
+  });
+
   // Vite Integration
   if (config.NODE_ENV !== 'production') {
     const vite = await createViteServer({

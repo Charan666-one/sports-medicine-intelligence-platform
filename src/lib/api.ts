@@ -486,12 +486,12 @@ export const athleteAPI = {
   },
 
   /**
-   * POST /api/v1/athletes/:id/recalculate-risk
+   * POST /api/v1/athletes/:id/recalculate
    * Triggers a risk score recalculation for a single athlete.
    */
   recalculateRisk(id: string): Promise<ApiResponse<RiskRecalculationResult>> {
     return client.post<RiskRecalculationResult>(
-      `/athletes/${encodeURIComponent(id)}/recalculate-risk`,
+      `/athletes/${encodeURIComponent(id)}/recalculate`,
     );
   },
 
@@ -583,6 +583,7 @@ const api = {
 
   get: client.get.bind(client),
   post: client.post.bind(client),
+  postForm: client.postForm.bind(client),
   patch: client.patch.bind(client),
   delete: client.delete.bind(client),
 

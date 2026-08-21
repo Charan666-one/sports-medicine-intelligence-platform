@@ -4,6 +4,7 @@ import { IsolationForest } from 'ml-isolation-forest';
 import * as ss from 'simple-statistics';
 import { ExplainabilityService, XAIReport } from './explainability.service.js';
 import { SocketService } from './socket.service.js';
+import { isGeminiEnabled } from '../config/index.js';
 
 export interface AIPredictionResult {
   riskLevel: 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL';
@@ -56,9 +57,11 @@ export class AIEngineService {
     
     if (dataPoints.length >= 5) {
       const iforest = new IsolationForest({ nEstimators: 100 });
-      iforest.fit(dataPoints.map(p => this.featureVector(p)));
-      const scores = iforest.scores(dataPoints.map(p => this.featureVector(p)));
-      anomalyScore = Math.abs(scores[0]); 
+      const vectors = dataPoints.map(p => this.featureVector(p));
+      // ml-isolation-forest API: train() builds the forest, predict() returns anomaly scores
+      iforest.train(vectors);
+      const scores = iforest.predict(vectors);
+      anomalyScore = Math.abs(scores[0]);
       isAnomaly = anomalyScore > 0.65;
     }
 
@@ -76,7 +79,7 @@ export class AIEngineService {
     );
 
     // 5. Optional LLM Enhancement (Phase 6)
-    if (process.env.GEMINI_API_KEY) {
+    if (isGeminiEnabled) {
       try {
         xaiReport = await ExplainabilityService.enhanceReportWithAI(xaiReport);
       } catch (e) {

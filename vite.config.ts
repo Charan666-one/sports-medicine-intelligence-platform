@@ -1,15 +1,15 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig, loadEnv} from 'vite';
+import {defineConfig} from 'vite';
 
-export default defineConfig(({mode}) => {
-  const env = loadEnv(mode, '.', '');
+export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
-    define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-    },
+    // NOTE: GEMINI_API_KEY is a server-only secret and is intentionally NOT
+    // injected into the client bundle. All Gemini calls happen in the Express
+    // backend (see src/services/geminiEnhancement.service.ts). Exposing it here
+    // via `define` would ship the secret to every browser.
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

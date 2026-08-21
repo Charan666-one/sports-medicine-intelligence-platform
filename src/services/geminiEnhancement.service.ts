@@ -1,14 +1,14 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { geminiApiKey } from "../config/index.js";
 
 export class GeminiEnhancementService {
   private static genAI: GoogleGenerativeAI | null = null;
 
   private static getClient() {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) return null;
-    
+    if (!geminiApiKey) return null;
+
     if (!this.genAI) {
-      this.genAI = new GoogleGenerativeAI(apiKey);
+      this.genAI = new GoogleGenerativeAI(geminiApiKey);
     }
     return this.genAI;
   }

@@ -226,9 +226,13 @@ export default function Reports() {
       const formData = new FormData();
       formData.append('file', uploadFile);
       
-      await api.post('/api/v1/reports/upload', formData).catch(async () => {
+      // NOTE: baseUrl is already '/api/v1', so the path must be relative to it.
+      // Use postForm() so the browser sends real multipart/form-data (a plain
+      // post() would JSON.stringify the FormData into "{}"). If the route is
+      // unavailable, we gracefully fall back to the simulated demo record below.
+      await api.postForm('/reports/upload', formData).catch(async () => {
         pushLog('WARN', 'API', 'Direct target upload network route failed. Simulating standard database generation.');
-        await sleep(400); 
+        await sleep(400);
       });
 
       // Construct dynamic record object mapping complete lifecycle

@@ -3,6 +3,7 @@ import { db } from '../services/db.js';
 import { getSystemUserId } from '../utils/systemUser.js';
 import { NotFoundError } from '../errors/AppError.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { geminiApiKey } from '../config/index.js';
 
 export class ReportController {
   static async getAllReports(req: Request, res: Response, next: NextFunction) {
@@ -68,7 +69,7 @@ export class ReportController {
 
       if (!report) throw new NotFoundError('Report not found');
 
-      if (!process.env.GEMINI_API_KEY) {
+      if (!geminiApiKey) {
         return res.json({ 
           status: 'success', 
           data: { 
@@ -77,7 +78,7 @@ export class ReportController {
         });
       }
 
-      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+      const genAI = new GoogleGenerativeAI(geminiApiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
       const prompt = `

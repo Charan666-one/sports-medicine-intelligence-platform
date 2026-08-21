@@ -1,14 +1,22 @@
 {
-  "name": "react-example",
+  "name": "nexus-sports-medicine-intelligence-platform",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "setup": "node scripts/setup.mjs",
     "dev": "tsx src/server.ts",
+    "start": "NODE_ENV=production tsx src/server.ts",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "prisma:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:seed": "prisma db seed"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

@@ -11,6 +11,7 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(1).default('super-secret-key-change-me'),
   JWT_EXPIRES_IN: z.string().default('7d'),
   CORS_ORIGIN: z.string().default('*'),
+  GEMINI_API_KEY: z.string().optional(),
 });
 
 const _env = envSchema.safeParse(process.env);
@@ -21,3 +22,26 @@ if (!_env.success) {
 }
 
 export const config = _env.data;
+
+/**
+ * Resolved Gemini API key.
+ *
+ * Returns `undefined` when the key is missing, blank, or still set to a known
+ * placeholder value (e.g. the one shipped in `.env.example`). This prevents the
+ * app from firing doomed requests to the Gemini API with an invalid key, which
+ * previously spammed the logs with `API_KEY_INVALID` errors on every AI action.
+ */
+const GEMINI_PLACEHOLDERS = new Set([
+  'MY_GEMINI_API_KEY',
+  'your_gemini_api_key_here',
+  'YOUR_API_KEY',
+]);
+
+export const geminiApiKey: string | undefined = (() => {
+  const key = config.GEMINI_API_KEY?.trim();
+  if (!key || GEMINI_PLACEHOLDERS.has(key)) return undefined;
+  return key;
+})();
+
+/** True when a real (non-placeholder) Gemini API key is configured. */
+export const isGeminiEnabled = Boolean(geminiApiKey);
