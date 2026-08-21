@@ -4,6 +4,7 @@ import reportRoutes from './report.routes.js';
 import alertRoutes from './alert.routes.js';
 import inspectionRoutes from './inspection.routes.js';
 import authRoutes from './auth.routes.js';
+import { analyticsRouter, antiDopingRouter } from './analytics.routes.js';
 import { getDashboardStats, runGlobalAudit } from '../controllers/stats.controller.js';
 import { protect } from '../middlewares/auth.middleware.js';
 
@@ -26,5 +27,7 @@ router.use('/athletes', athleteRoutes);
 router.use('/reports', reportRoutes);
 router.use('/alerts', alertRoutes);
 router.use('/inspections', inspectionRoutes);
+router.use('/analytics', analyticsRouter);
+router.use('/anti-doping', antiDopingRouter);
 
 export default router;

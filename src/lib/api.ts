@@ -495,12 +495,45 @@ export const antiDopingAPI = {
   /**
    * POST /api/v1/anti-doping/run-audit
    * Triggers an enterprise-wide anti-doping recalculation.
-   * Returns 202 Accepted immediately; processing is async.
    */
   runGlobalAudit(
     payload: RunAuditPayload = {},
   ): Promise<ApiResponse<AuditJobResult>> {
     return client.post<AuditJobResult>('/anti-doping/run-audit', payload);
+  },
+
+  /**
+   * GET /api/v1/anti-doping/marker-variance
+   * Average biomarker levels vs clinical baseline (radar data).
+   */
+  getMarkerVariance(): Promise<ApiResponse<{ markers: { subject: string; A: number; fullMark: number }[] }>> {
+    return client.get('/anti-doping/marker-variance');
+  },
+
+  /**
+   * GET /api/v1/anti-doping/longitudinal
+   * Time series of a single biomarker across athletes (scatter data).
+   */
+  getLongitudinal(
+    parameter = 'Hemoglobin',
+  ): Promise<ApiResponse<{ parameter: string; series: { x: number; y: number; z: number; date: string; atypical: boolean }[] }>> {
+    return client.get('/anti-doping/longitudinal', { parameter });
+  },
+} as const;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Analytics API Module
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const analyticsAPI = {
+  /**
+   * GET /api/v1/analytics/risk-trend
+   * Monthly average risk score + report volume (area chart data).
+   */
+  getRiskTrend(
+    months = 6,
+  ): Promise<ApiResponse<{ trend: { name: string; risk: number; tests: number }[] }>> {
+    return client.get('/analytics/risk-trend', { months });
   },
 } as const;
 
@@ -661,6 +694,7 @@ const api = {
   // ─────────────────────────────────────────
 
   antiDoping: antiDopingAPI,
+  analytics: analyticsAPI,
   athlete: athleteAPI,
   report: reportAPI,
   alert: alertAPI,
