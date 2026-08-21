@@ -83,11 +83,38 @@ no external network calls.
 | Command | Description |
 |---|---|
 | `npm run dev` | Start API + frontend (development) |
-| `npm run setup` | Create `.env`, generate Prisma client, push schema, seed |
+| `npm run setup` | Create `.env` (+ secrets), generate Prisma client, push schema, seed, cache OCR model |
 | `npm run db:push` | Sync the Prisma schema into the database |
 | `npm run db:seed` | Re-seed demo data |
 | `npm run build` | Build the frontend bundle (`dist/`) |
-| `npm run lint` | Type-check with `tsc --noEmit` |
+| `npm run typecheck` | Strict type-check (`tsc --noEmit`); `typecheck:server` checks the backend without DOM libs |
+| `npm run lint` | ESLint (flat config, typescript-eslint); `lint:fix` to auto-fix |
+| `npm run format` | Prettier write; `format:check` to verify |
+| `npm run test` | Run the Vitest unit suite; `test:coverage` for coverage |
+| `npm run check` | typecheck + lint + test (the CI gate) |
+
+## Development & quality
+
+- **TypeScript** runs in `strict` mode. `tsconfig.json` covers the frontend + shared code; `tsconfig.server.json` type-checks the backend without DOM libs.
+- **ESLint + Prettier** are configured (`eslint.config.js`, `.prettierrc.json`).
+- **Vitest** unit tests live in `tests/` (crypto, biomarker normalization/extraction, validation).
+- **CI**: `.github/workflows/ci.yml` runs typecheck → lint → test → build on every push/PR.
+- **Logging** uses `pino` (pretty in dev, JSON in prod) with secret/PII redaction.
+
+## Docker
+
+```bash
+# Build and run (SQLite, single container)
+JWT_SECRET=$(openssl rand -base64 48) \
+ENCRYPTION_KEY=$(openssl rand -hex 32) \
+CORS_ORIGIN=http://localhost:3000 \
+docker compose up --build
+```
+
+The image builds the frontend, pushes the Prisma schema on start, and serves the
+API + frontend on port 3000. Uploads, the OCR model, and the SQLite DB persist on
+named volumes. For Postgres, uncomment the `db` service in `docker-compose.yml`
+and switch the datasource provider in `prisma/schema.prisma`.
 
 ## Optional Python ML service
 

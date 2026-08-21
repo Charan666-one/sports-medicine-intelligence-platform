@@ -23,7 +23,7 @@ export const resolveAlert = async (req: Request, res: Response, next: NextFuncti
       where: { id },
       data: { isResolved: true, resolvedAt: new Date() }
     });
-    const actingUserId = (req as any).user?.id ?? (await getSystemUserId());
+    const actingUserId = req.user?.id ?? (await getSystemUserId());
     await AuditService.log({ userId: actingUserId, action: 'ALERT_RESOLVED', details: `Alert ${id} resolved`, req });
     await AuditService.record({ tableName: 'Alert', recordId: id, operation: 'UPDATE', changedBy: actingUserId, newValue: { isResolved: true } });
     res.json({ status: 'success', data: { alert } });

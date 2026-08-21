@@ -65,7 +65,7 @@ export class ReportIngestionController {
 
     try {
       logger.info(`📥 Ingestion for athlete ${athleteName} (${athleteId})`);
-      const creatorId = (req as any).user?.id || (await getSystemUserId());
+      const creatorId = req.user?.id || (await getSystemUserId());
 
       // 1. Initial record
       const report = await db.medicalReport.create({

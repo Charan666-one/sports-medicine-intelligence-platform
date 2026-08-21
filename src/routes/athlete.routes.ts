@@ -3,6 +3,8 @@ import * as athleteController from '../controllers/athlete.controller.js';
 import { upload } from '../services/upload.service.js';
 import { ReportIngestionController } from '../controllers/reportIngestion.controller.js';
 import { AssistantController } from '../controllers/assistant.controller.js';
+import { validate } from '../middlewares/validator.js';
+import { createAthleteSchema } from '../dtos/athlete.dto.js';
 
 const router = Router();
 
@@ -12,7 +14,7 @@ const router = Router();
  * @access Public (for Phase 1)
  */
 router.get('/', athleteController.getAllAthletes);
-router.post('/', athleteController.createAthlete);
+router.post('/', validate(createAthleteSchema), athleteController.createAthlete);
 
 /**
  * @route GET /api/v1/athletes/:id

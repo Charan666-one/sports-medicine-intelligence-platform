@@ -420,35 +420,35 @@ class ApiClient {
 
   // ── Public HTTP primitives ──────────────────────────────────────────────
 
-  async get<T>(
+  async get<T = any>(
     path: string,
     query?: Record<string, string | number | boolean | undefined | null>,
   ): Promise<ApiResponse<T>> {
     return this.request<T>('GET', path, { query });
   }
 
-  async post<T>(
+  async post<T = any>(
     path: string,
     body?: unknown,
   ): Promise<ApiResponse<T>> {
     return this.request<T>('POST', path, { body });
   }
 
-  async postForm<T>(
+  async postForm<T = any>(
     path: string,
     formData: FormData,
   ): Promise<ApiResponse<T>> {
     return this.request<T>('POST', path, { formData });
   }
 
-  async patch<T>(
+  async patch<T = any>(
     path: string,
     body?: unknown,
   ): Promise<ApiResponse<T>> {
     return this.request<T>('PATCH', path, { body });
   }
 
-  async delete<T>(
+  async delete<T = any>(
     path: string,
     body?: unknown,
   ): Promise<ApiResponse<T>> {

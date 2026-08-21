@@ -57,7 +57,7 @@ export class AIEngineService {
     
     if (dataPoints.length >= 5) {
       const iforest = new IsolationForest({ nEstimators: 100 });
-      const vectors = dataPoints.map(p => this.featureVector(p));
+      const vectors = dataPoints.map((p: any) => this.featureVector(p));
       // ml-isolation-forest API: train() builds the forest, predict() returns anomaly scores
       iforest.train(vectors);
       const scores = iforest.predict(vectors);

@@ -95,7 +95,7 @@ export class AuthController {
 
   static async me(req: Request, res: Response, next: NextFunction) {
     try {
-      const user = (req as any).user;
+      const user = req.user;
       if (!user) throw new UnauthorizedError('Not authenticated.');
       res.json({ status: 'success', data: { user: publicUser(user) } });
     } catch (error) {

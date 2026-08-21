@@ -39,7 +39,7 @@ export const protect = async (req: Request, _res: Response, next: NextFunction) 
       return next(new UnauthorizedError('The user for this token no longer exists or is inactive.'));
     }
 
-    (req as any).user = currentUser;
+    req.user = currentUser;
     next();
   } catch (error) {
     next(new UnauthorizedError('Authentication failed.'));
@@ -51,7 +51,7 @@ export const protect = async (req: Request, _res: Response, next: NextFunction) 
  */
 export const restrictTo = (...roles: string[]) => {
   return (req: Request, _res: Response, next: NextFunction) => {
-    const userRole = (req as any).user?.role?.name;
+    const userRole = req.user?.role?.name;
     if (!userRole || !roles.includes(userRole)) {
       return next(new ForbiddenError('You do not have permission to perform this action.'));
     }
