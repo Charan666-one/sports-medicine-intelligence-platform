@@ -10,11 +10,12 @@
  * Run with:  npm run setup
  */
 import { execSync } from 'node:child_process';
-import { existsSync, copyFileSync, mkdirSync, createWriteStream } from 'node:fs';
+import { existsSync, copyFileSync, mkdirSync, createWriteStream, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
+import { randomBytes } from 'node:crypto';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, '..');
@@ -36,6 +37,26 @@ if (!existsSync(envPath)) {
   }
 } else {
   console.log('✔ .env already exists — leaving it untouched.');
+}
+
+// 1b. Fill in strong secrets if they are still the placeholders.
+try {
+  let env = readFileSync(envPath, 'utf8');
+  const ensureSecret = (key, generator) => {
+    const re = new RegExp(`^${key}=.*$`, 'm');
+    const current = env.match(re)?.[0]?.split('=').slice(1).join('=').replace(/^"|"$/g, '') ?? '';
+    const looksPlaceholder = !current || /change-me|please|min-16|32-byte/i.test(current);
+    if (looksPlaceholder) {
+      const value = generator();
+      env = re.test(env) ? env.replace(re, `${key}="${value}"`) : `${env}\n${key}="${value}"`;
+      console.log(`✔ Generated ${key}.`);
+    }
+  };
+  ensureSecret('JWT_SECRET', () => randomBytes(48).toString('base64url'));
+  ensureSecret('ENCRYPTION_KEY', () => randomBytes(32).toString('hex'));
+  writeFileSync(envPath, env);
+} catch (err) {
+  console.warn(`⚠ Could not auto-generate secrets (${err.message}). Set JWT_SECRET and ENCRYPTION_KEY in .env manually.`);
 }
 
 // 2. OCR model for image ingestion (best-effort — needs internet once)

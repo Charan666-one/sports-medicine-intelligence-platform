@@ -20,6 +20,38 @@
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Auth token storage (JWT) — shared by the API client and the auth context
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TOKEN_KEY = 'nexus_token';
+
+export function getAuthToken(): string | null {
+  try {
+    return typeof window !== 'undefined' ? window.localStorage.getItem(TOKEN_KEY) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setAuthToken(token: string | null): void {
+  try {
+    if (typeof window === 'undefined') return;
+    if (token) window.localStorage.setItem(TOKEN_KEY, token);
+    else window.localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* ignore storage errors */
+  }
+}
+
+/** Called when the server rejects the token (401). Clears it and signals the app. */
+function onUnauthorized(): void {
+  setAuthToken(null);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('nexus:unauthorized'));
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Shared Response Types
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -322,6 +354,10 @@ class ApiClient {
       Accept: 'application/json',
     };
 
+    // Attach the JWT from storage, if present, to every request.
+    const token = getAuthToken();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
     let fetchBody: BodyInit | undefined;
 
     if (options.formData) {
@@ -363,6 +399,10 @@ class ApiClient {
 
     // Non-2xx: surface the server's error message before normalising
     if (!response.ok) {
+      // Session expired / invalid — clear the token and let the app redirect.
+      if (response.status === 401 && path !== '/auth/login' && path !== '/auth/register') {
+        onUnauthorized();
+      }
       throw new ApiError({
         message:
           (typeof raw.error   === 'string' ? raw.error   : undefined) ??
@@ -560,6 +600,35 @@ export const alertAPI = {
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Auth API Module
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  role?: { id: string; name: string } | null;
+  [key: string]: unknown;
+}
+
+export interface AuthPayload {
+  token: string;
+  user: AuthUser;
+}
+
+export const authAPI = {
+  login(email: string, password: string): Promise<ApiResponse<AuthPayload>> {
+    return client.post<AuthPayload>('/auth/login', { email, password });
+  },
+  register(input: { email: string; password: string; name: string; organizationName?: string }): Promise<ApiResponse<AuthPayload>> {
+    return client.post<AuthPayload>('/auth/register', input);
+  },
+  me(): Promise<ApiResponse<{ user: AuthUser }>> {
+    return client.get<{ user: AuthUser }>('/auth/me');
+  },
+} as const;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Re-export ApiClient for projects that need custom instances (e.g. testing)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -595,6 +664,7 @@ const api = {
   athlete: athleteAPI,
   report: reportAPI,
   alert: alertAPI,
+  auth: authAPI,
 } as const;
 
 export { api };
