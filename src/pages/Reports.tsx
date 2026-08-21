@@ -135,31 +135,33 @@ export default function Reports() {
     pushLog('INFO', 'API', 'Initializing core intelligence fetch pipeline sequence...');
     
     try {
-      // Parallel execution matching exact endpoints
+      // Real endpoints (baseUrl is already '/api/v1', so paths are relative).
       const [reportsRes, alertsRes] = await Promise.all([
-        api.get('/api/v1/reports').catch(err => {
-          pushLog('WARN', 'API', 'Falling back to dynamic core mock telemetry generation models.');
-          return { data: { reports: generateMockReports() } };
-        }),
-        api.get('/api/v1/alerts').catch(() => ({ data: { anomalies: 12, compliance: 94.2 } }))
+        api.get('/reports'),
+        api.get('/alerts').catch(() => ({ data: { alerts: [] } })),
       ]);
 
-      const fetchedReports = reportsRes.data?.reports || [];
+      const rawReports = (reportsRes.data as any)?.reports || [];
+      const fetchedReports: DiagnosticReport[] = rawReports.map(mapBackendReport);
       setReports(fetchedReports);
       setFilteredReports(fetchedReports);
-      
-      if (alertsRes.data) {
-        setStats({
-          complianceRate: alertsRes.data.compliance || 94.2,
-          flaggedAnomalies: alertsRes.data.anomalies || fetchedReports.filter(r => r.status === 'FLAGGED').length,
-          totalProcessed: fetchedReports.length + 32
-        });
-      }
 
-      pushLog('SUCCESS', 'API', `Successfully compiled ${fetchedReports.length} analytical data passports.`);
+      const alerts = (alertsRes.data as any)?.alerts || [];
+      const unresolvedAlerts = alerts.filter((a: any) => !a.isResolved).length;
+      const flaggedCount = fetchedReports.filter(r => r.status === 'FLAGGED').length;
+      const total = fetchedReports.length;
+      setStats({
+        complianceRate: total > 0 ? parseFloat((((total - flaggedCount) / total) * 100).toFixed(1)) : 100,
+        flaggedAnomalies: unresolvedAlerts || flaggedCount,
+        totalProcessed: total,
+      });
+
+      pushLog('SUCCESS', 'API', `Compiled ${fetchedReports.length} live report records from the intelligence core.`);
     } catch (error: any) {
-      pushLog('ERROR', 'API', 'Fatal processing breakdown inside Core API Data Pipeline.', error);
-      addToast('error', 'Failed to synchronize with Nexus Intelligence Network core infrastructure.');
+      pushLog('ERROR', 'API', 'Failed to load reports from the backend.', error);
+      addToast('error', 'Failed to synchronize with the Nexus backend. Is the API running?');
+      setReports([]);
+      setFilteredReports([]);
     } finally {
       if (!silent) setLoading(false);
     }
@@ -188,96 +190,72 @@ export default function Reports() {
   // WORKFLOW INTERFACE HANDLERS
   // ============================================================================
   
-  // 1. Upload Processing Pipeline Simulation
+  // 1. Real Upload → Ingestion Pipeline (parses the file and computes real risk)
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!uploadFile) return;
 
-    pushLog('INFO', 'INGEST', `Binary payload received: "${uploadFile.name}". Allocating infrastructure buffer...`);
-    setUploadProgress(5);
-    setUploadStage('Initializing secure ingestion transport framework...');
+    pushLog('INFO', 'INGEST', `Uploading "${uploadFile.name}" to the ingestion pipeline...`);
+    setUploadProgress(10);
+    setUploadStage('Uploading document to secure ingestion endpoint...');
+
+    // Drive an indeterminate progress bar while the server does the real work
+    // (OCR/parse → validation → risk computation).
+    let ticking = true;
+    const tick = async () => {
+      let p = 10;
+      while (ticking && p < 90) {
+        p += 5;
+        setUploadProgress(p);
+        if (p === 35) setUploadStage('Extracting biomarkers (OCR / PDF / CSV parsing)...');
+        if (p === 60) setUploadStage('Validating against physiological ranges...');
+        if (p === 80) setUploadStage('Computing deterministic risk & anomaly intelligence...');
+        await new Promise(r => setTimeout(r, 180));
+      }
+    };
+    const ticker = tick();
 
     try {
-      const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-      
-      // Stage 1: Binary Network Streaming Injection
-      for (let p = 5; p <= 35; p += 10) {
-        setUploadProgress(p);
-        await sleep(150);
-      }
-      
-      // Stage 2: OCR Extraction and Translation
-      setUploadStage('Executing High-Performance Computer Vision OCR extraction processing...');
-      pushLog('INFO', 'INGEST', 'Executing PDF text extraction mapping on biological parameters.');
-      for (let p = 40; p <= 65; p += 5) {
-        setUploadProgress(p);
-        await sleep(100);
-      }
-
-      // Stage 3: Normalization & WADA Standard Enforcement Validation
-      setUploadStage('Normalizing biomarkers against global WADA ADAMS profiling matrix...');
-      pushLog('INFO', 'AI_ENGINE', 'Validating structured parameters against baseline longitudinal records.');
-      for (let p = 70; p <= 90; p += 10) {
-        setUploadProgress(p);
-        await sleep(200);
-      }
-
-      // Execute network payload delivery
       const formData = new FormData();
       formData.append('file', uploadFile);
-      
-      // NOTE: baseUrl is already '/api/v1', so the path must be relative to it.
-      // Use postForm() so the browser sends real multipart/form-data (a plain
-      // post() would JSON.stringify the FormData into "{}"). If the route is
-      // unavailable, we gracefully fall back to the simulated demo record below.
-      await api.postForm('/reports/upload', formData).catch(async () => {
-        pushLog('WARN', 'API', 'Direct target upload network route failed. Simulating standard database generation.');
-        await sleep(400);
-      });
 
-      // Construct dynamic record object mapping complete lifecycle
-      const newReport: DiagnosticReport = {
-        id: `REP-${Math.floor(100000 + Math.random() * 900000)}-NX`,
-        athlete: {
-          id: `ATH-${Math.floor(1000 + Math.random() * 9000)}`,
-          name: uploadFile.name.split('.')[0].replace(/[-_]/g, ' ') || 'Unknown Athlete Specimen',
-          passportId: `EBP-${Math.floor(10000000 + Math.random() * 90000000)}`
-        },
-        type: 'HEMATOLOGICAL_PASSPORT_MONITORING',
-        createdAt: new Date().toISOString(),
-        status: Math.random() > 0.65 ? 'FLAGGED' : 'COMPLETED',
-        riskScore: Math.floor(Math.random() * 100),
-        confidenceScore: parseFloat((0.92 + Math.random() * 0.07).toFixed(3)),
-        biomarkerCount: 7,
-        testResults: [
-          { marker: 'HGB', value: 16.2, unit: 'g/dL', status: 'ELEVATED' },
-          { marker: 'RET%', value: 1.8, unit: '%', status: 'NORMAL' },
-          { marker: 'OFF-HR', value: 102.4, unit: 'score', status: 'NORMAL' }
-        ]
-      };
+      // Real auto-match ingestion: baseUrl is '/api/v1', so path is relative.
+      const res = await api.postForm('/reports/ingest', formData);
+      ticking = false;
+      await ticker;
+
+      const data: any = res.data || {};
+      const detected = data?.athlete?.detectedName;
+      const matched = data?.athlete?.matched;
+      const biomarkerCount = data?.biomarkers?.length ?? 0;
+      const risk = data?.ai?.riskLevel;
 
       setUploadProgress(100);
-      setUploadStage('Ingestion operational loop finished successfully.');
-      
-      // Optimistic layout frame allocation refresh
-      setReports(prev => [newReport, ...prev]);
-      if (newReport.status === 'FLAGGED') {
-        setStats(prev => ({ ...prev, flaggedAnomalies: prev.flaggedAnomalies + 1 }));
-      }
-      
-      pushLog('SUCCESS', 'INGEST', `Operational cycle finished for report sequence: ${newReport.id}`);
-      addToast('success', 'Medical report payload ingested and parsed via intelligence layer.');
-      
+      setUploadStage('Ingestion complete.');
+      pushLog('SUCCESS', 'INGEST',
+        `Parsed ${biomarkerCount} biomarkers for ${data?.athlete?.name ?? 'athlete'}` +
+        (risk ? ` — risk ${risk}.` : '.') +
+        (matched ? ' (matched existing athlete)' : detected ? ' (new athlete created)' : ''));
+      addToast('success',
+        `Report ingested: ${biomarkerCount} biomarkers extracted${risk ? `, risk ${risk}` : ''}.`);
+
+      // Refresh the list from the backend so the new, real record appears.
+      await fetchDashboardData(true);
+
       setTimeout(() => {
         setUploadModalOpen(false);
         setUploadFile(null);
         setUploadProgress(0);
         setUploadStage('');
-      }, 600);
-
-    } catch (error) {
-      pushLog('ERROR', 'INGEST', 'Ingestion breakdown or signature validation failure within parser pipeline.', error);
-      addToast('error', 'Ingestion failed: Parsing structure was rejected by safety verification engines.');
+      }, 700);
+    } catch (error: any) {
+      ticking = false;
+      await ticker;
+      setUploadProgress(0);
+      setUploadStage('');
+      const msg = error?.serverMessage || error?.message || 'Ingestion failed.';
+      pushLog('ERROR', 'INGEST', `Ingestion failed: ${msg}`, error);
+      addToast('error', `Ingestion failed: ${msg}`);
     }
   };
 
@@ -876,35 +854,45 @@ function ServiceStatus({ label, status }: { label: string; status: SyncStatus })
 }
 
 // ============================================================================
-// RECOVERY TELEMETRY GENERATION ENGINE (MOCK INITIALIZATION INTERFACE)
+// BACKEND → UI REPORT MAPPER (real data, no mocks)
 // ============================================================================
-function generateMockReports(): DiagnosticReport[] {
-  const athleteNames = ['Alexander Vlasov', 'Elena Radionova', 'Marcus Hellner', 'Sanya Richards-Ross', 'Kristof Milak'];
-  const testTypes = ['HEMATOLOGICAL_PASSPORT_MONITORING', 'ENDOCRINE_STEROID_PROFILING', 'URINALYSIS_GC_MS_ANALYSIS', 'GROWTH_HORMONE_BIOMARKER_SCREEN'];
-  
-  return Array.from({ length: 5 }).map((_, i) => {
-    const isFlagged = i === 1 || i === 4;
-    const status: ReportStatus = isFlagged ? 'FLAGGED' : (i === 3 ? 'PROCESSING' : 'COMPLETED');
-    const riskScore = isFlagged ? Math.floor(76 + Math.random() * 20) : Math.floor(5 + Math.random() * 30);
-    
-    return {
-      id: `REP-${Math.floor(200000 + Math.random() * 700000)}-NX`,
-      athlete: {
-        id: `ATH-${Math.floor(5000 + Math.random() * 4000)}`,
-        name: athleteNames[i % athleteNames.length],
-        passportId: `EBP-${Math.floor(10000000 + Math.random() * 90000000)}`
-      },
-      type: testTypes[i % testTypes.length],
-      createdAt: new Date(Date.now() - i * 24 * 3600 * 1000).toISOString(),
-      status: status,
-      riskScore: status === 'PROCESSING' ? 0 : riskScore,
-      confidenceScore: parseFloat((0.94 + Math.random() * 0.05).toFixed(3)),
-      biomarkerCount: Math.floor(4 + Math.random() * 6),
-      testResults: [
-        { marker: 'HGB', value: isFlagged ? 17.8 : 14.5, unit: 'g/dL', status: isFlagged ? 'CRITICAL' : 'NORMAL' },
-        { marker: 'RET%', value: isFlagged ? 2.4 : 0.9, unit: '%', status: isFlagged ? 'ELEVATED' : 'NORMAL' },
-        { marker: 'OFF-HR', value: 98.2, unit: 'score', status: 'NORMAL' }
-      ]
-    };
-  });
+const RISK_LEVEL_SCORE: Record<string, number> = { LOW: 20, MODERATE: 55, HIGH: 78, CRITICAL: 95 };
+
+function mapBackendReport(r: any): DiagnosticReport {
+  const latestRisk = r?.athlete?.riskAssessments?.[0]?.score;
+  const latestAiLevel = r?.athlete?.aiPredictions?.[0]?.riskLevel as string | undefined;
+  const riskScore =
+    typeof latestRisk === 'number' ? Math.round(latestRisk)
+    : latestAiLevel ? (RISK_LEVEL_SCORE[latestAiLevel] ?? 0)
+    : r?.status === 'FLAGGED' ? 80 : 15;
+
+  const confidenceScore =
+    typeof r?.ocrConfidence === 'number' && r.ocrConfidence > 0 ? r.ocrConfidence
+    : typeof r?.parsingConfidence === 'number' && r.parsingConfidence > 0 ? r.parsingConfidence
+    : 0.9;
+
+  const testResults: TestResult[] = (r?.testResults ?? []).map((t: any) => ({
+    marker: t.parameter,
+    value: t.value,
+    unit: t.unit,
+    status: t.isAtypical ? 'CRITICAL' : 'NORMAL',
+  }));
+
+  return {
+    id: r.id,
+    athlete: {
+      id: r?.athlete?.id ?? r.athleteId ?? 'unknown',
+      name: r?.athlete?.name ?? 'Unknown Athlete',
+      passportId:
+        r?.athlete?.externalId ??
+        `EBP-${String(r?.athlete?.id ?? r.athleteId ?? '').slice(0, 8).toUpperCase()}`,
+    },
+    type: r?.type ?? 'MEDICAL_REPORT',
+    createdAt: r?.createdAt ?? new Date().toISOString(),
+    status: (r?.status ?? 'PENDING') as ReportStatus,
+    riskScore,
+    confidenceScore,
+    testResults,
+    biomarkerCount: testResults.length,
+  };
 }

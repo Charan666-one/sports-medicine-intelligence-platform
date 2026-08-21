@@ -1,22 +1,17 @@
 import { PrismaClient } from '@prisma/client';
-import { logger } from '../utils/logger.js';
 
 /**
- * Singleton Prisma Client initialized for the entire app.
+ * Singleton Prisma Client for the entire app.
+ *
+ * Query-level logging is intentionally disabled: raw SQL contains patient
+ * medical values (biomarkers, PII), so logging every query would leak sensitive
+ * data into stdout/log aggregators. Only warnings and errors are emitted.
+ * Set PRISMA_DEBUG=true to temporarily enable verbose query logs in development.
  */
-const prisma = new PrismaClient({
-  log: [
-    { emit: 'event', level: 'query' },
-    { emit: 'stdout', level: 'error' },
-    { emit: 'stdout', level: 'info' },
-    { emit: 'stdout', level: 'warn' },
-  ],
-});
+const verbose = process.env.PRISMA_DEBUG === 'true';
 
-prisma.$on('query', (e) => {
-  if (process.env.NODE_ENV === 'development') {
-    logger.debug(`Query: ${e.query} - Duration: ${e.duration}ms`);
-  }
+const prisma = new PrismaClient({
+  log: verbose ? ['query', 'warn', 'error'] : ['warn', 'error'],
 });
 
 export const db = prisma;

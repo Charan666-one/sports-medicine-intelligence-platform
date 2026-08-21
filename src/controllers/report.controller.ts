@@ -9,11 +9,16 @@ export class ReportController {
   static async getAllReports(req: Request, res: Response, next: NextFunction) {
     try {
       const reports = await db.medicalReport.findMany({
-        include: { 
-          athlete: true,
-          testResults: true 
+        include: {
+          athlete: {
+            include: {
+              riskAssessments: { orderBy: { createdAt: 'desc' }, take: 1 },
+              aiPredictions: { orderBy: { createdAt: 'desc' }, take: 1 },
+            },
+          },
+          testResults: true,
         },
-        orderBy: { createdAt: 'desc' }
+        orderBy: { createdAt: 'desc' },
       });
       res.json({ status: 'success', data: { reports } });
     } catch (error) {
