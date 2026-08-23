@@ -30,4 +30,26 @@ and Oxygen Saturation.
 | `Viktor-Sorokin-blood-panel.csv` | Doping-like pattern (high Hb/HCT/EPO/T-E, low ferritin) | HIGH/CRITICAL risk, FLAGGED |
 | `Kenji-Tanaka-full-panel.csv` | Broad panel, normal | LOW risk, VALID |
 
+## Image (OCR) sample
+
+| File | Purpose |
+|------|---------|
+| `Grace-Miller-lab-scan.png` | A rendered lab report image — tests the real image→OCR→biomarker path (~93% confidence). |
+
+## Longitudinal series — `longitudinal-sofia-marchetti/`
+
+Six reports for the **same** athlete (Sofia Marchetti). Upload them in order
+(`panel-1` → `panel-6-SPIKE`) to build a biological-passport history: five stable
+baselines followed by a blood-doping-style spike. This populates the Anti-Doping
+longitudinal chart and drives the risk from LOW to **CRITICAL** on the final
+report.
+
+## Edge cases — `edge-cases/`
+
+| File | Tests |
+|------|-------|
+| `Noah-Petit-panel.csv` | Headerless CSV using aliases (`Hb`, `HCT`, `Retic`, `T/E Ratio`) — normalization still resolves them → VALID |
+| `Incomplete-Panel.csv` | Missing core markers (no Hemoglobin/EPO) → **INCOMPLETE** with validation notes |
+| `Corrupt-Report.csv` | No recognizable biomarkers → ingests but is flagged **INCOMPLETE** (graceful, no crash) |
+
 > These are synthetic values for demonstration only — not real medical data.
