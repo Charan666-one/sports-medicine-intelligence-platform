@@ -298,10 +298,10 @@ export default function Dashboard() {
                 </h3>
                 <div className="space-y-6">
                   {[
-                    { label: 'Real-Time Surveillance', status: 'ACTIVE', progress: 100 },
-                    { label: 'Deterministic Reasoning', status: 'ACTIVE', progress: 100 },
-                    { label: 'AI Assistance Engine', status: 'ACTIVE', progress: 100 },
-                    { label: 'Operational Sync', status: 'RUNNING', progress: 100 },
+                    { label: 'Real-Time Surveillance', status: stats ? 'ACTIVE' : 'CONNECTING', progress: stats ? 100 : 40 },
+                    { label: 'Deterministic Risk Engine', status: 'ACTIVE', progress: 100 },
+                    { label: 'AI Intelligence Engine', status: (stats?.intelligencePredictions ?? 0) > 0 ? 'ACTIVE' : 'IDLE', progress: (stats?.intelligencePredictions ?? 0) > 0 ? 100 : 25 },
+                    { label: `Reports Processed (${stats?.totalReports ?? 0})`, status: 'SYNCED', progress: 100 },
                   ].map((step, i) => (
                     <div key={i} className="space-y-2">
                       <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-400">

@@ -259,68 +259,45 @@ export default function Reports() {
     }
   };
 
-  // 2. Intelligent System Deep Scan Core
+  // 2. Deep Scan — runs the real global anti-doping audit on the backend.
   const handleDeepScan = async () => {
     if (isScanning) return;
     setIsScanning(true);
-    pushLog('INFO', 'AI_ENGINE', 'Triggering Deep Scan heuristic framework validation cycle across standard telemetry maps...');
-    addToast('info', 'Executing pattern monitoring scan over all unresolved biological records...');
+    pushLog('INFO', 'AI_ENGINE', 'Running global anti-doping audit across all athlete records...');
+    addToast('info', 'Running deep audit over biological records...');
 
     try {
-      // Network verification trigger execution
-      await api.post('/api/v1/intelligence/deep-scan').catch(() => {
-        pushLog('WARN', 'API', 'Primary microservices routed via fallback pipeline arrays.');
-      });
-
-      const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-      await sleep(1500); // Compute block replication delay
-
-      // Recalibrate and evaluate systemic variations
-      setReports(prev => prev.map(rep => {
-        if (rep.status === 'PENDING' || rep.status === 'PROCESSING') {
-          const resolveState = Math.random() > 0.7 ? 'FLAGGED' : 'COMPLETED';
-          pushLog('INFO', 'AI_ENGINE', `Re-evaluated and finalized resolution map parameters on node ${rep.id} to status: ${resolveState}`);
-          return { ...rep, status: resolveState as ReportStatus, riskScore: Math.floor(Math.random() * 100) };
-        }
-        return rep;
-      }));
-
-      setStats(prev => ({
-        ...prev,
-        complianceRate: parseFloat((92.0 + Math.random() * 5).toFixed(1)),
-        flaggedAnomalies: prev.flaggedAnomalies + (Math.random() > 0.5 ? 1 : 0)
-      }));
-
-      pushLog('SUCCESS', 'AI_ENGINE', 'Deep heuristic analytics assessment run completed without structural faults.');
-      addToast('success', 'Deep Scan complete. Athlete passport variance parameters updated.');
-    } catch (error) {
-      pushLog('ERROR', 'AI_ENGINE', 'Critical Exception caught inside multi-layered threat vector checking framework.', error);
-      addToast('error', 'Intelligence analysis execution loop terminated early.');
+      const res = await api.post('/audit', {});
+      const audited = (res.data as any)?.auditedAthletes ?? 0;
+      pushLog('SUCCESS', 'AI_ENGINE', `Audit complete: ${audited} athletes evaluated.`);
+      addToast('success', `Deep audit complete — ${audited} athletes evaluated.`);
+      await fetchDashboardData(true);
+    } catch (error: any) {
+      const msg = error?.serverMessage || error?.message || 'Audit failed.';
+      pushLog('ERROR', 'AI_ENGINE', `Deep audit failed: ${msg}`, error);
+      addToast('error', `Deep audit failed: ${msg}`);
     } finally {
       setIsScanning(false);
     }
   };
 
-  // 3. Global AI Distributed Nodes Sync
+  // 3. Global AI Sync — recomputes risk & AI intelligence for every athlete.
   const handleGlobalAISync = async () => {
     if (isSyncing) return;
     setIsSyncing(true);
-    pushLog('INFO', 'SYNC', 'Initializing synchronization logic protocol loop with secure external endpoints...');
+    pushLog('INFO', 'SYNC', 'Recalculating risk & AI intelligence for all athletes...');
 
     try {
-      await api.post('/api/v1/ai/sync').catch(() => {
-        pushLog('WARN', 'API', 'Direct network handshake failed; fallback to local offline mesh nodes initialization.');
-      });
-
-      const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-      await sleep(2000); // Mirror cryptographic handshake latency
-
-      pushLog('SUCCESS', 'SYNC', 'Distributed model parameter optimization weights downloaded. Global synchronization finalized.');
-      addToast('success', 'Anti-Doping Global Intelligence network synced successfully.');
+      const res = await api.post('/athletes/recalculate-all', {});
+      const processed =
+        (res.data as any)?.processed ?? (res.data as any)?.successfulCount ?? 0;
+      pushLog('SUCCESS', 'SYNC', `Global recalculation complete for ${processed} athletes.`);
+      addToast('success', `Global AI sync complete — ${processed} athletes recomputed.`);
       await fetchDashboardData(true);
-    } catch (error) {
-      pushLog('ERROR', 'SYNC', 'Handshake token signature mismatched during validation mapping.');
-      addToast('error', 'Distributed cluster processing network rejected node synchronization command.');
+    } catch (error: any) {
+      const msg = error?.serverMessage || error?.message || 'Sync failed.';
+      pushLog('ERROR', 'SYNC', `Global AI sync failed: ${msg}`);
+      addToast('error', `Global AI sync failed: ${msg}`);
     } finally {
       setIsSyncing(false);
     }

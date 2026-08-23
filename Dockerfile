@@ -36,5 +36,6 @@ VOLUME ["/app/uploads", "/app/data", "/app/prisma"]
 
 EXPOSE 3000
 
-# Push the schema, then start the server (serves API + built frontend).
-CMD ["sh", "-c", "npx prisma db push --skip-generate && npm run start"]
+# Push the schema, seed on first boot (ignored if data already exists),
+# then start the server (serves API + built frontend).
+CMD ["sh", "-c", "npx prisma db push --skip-generate && (npx prisma db seed || echo 'seed skipped (data exists)') && npm run start"]
