@@ -45,6 +45,8 @@ export class ReportIngestionController {
       const match = await AthleteMatchService.resolve({
         fileName: file.originalname,
         rawText: parseResult.rawText,
+        // Scope matching + creation to the uploader's organization (tenant isolation).
+        organizationId: req.user?.organizationId,
       });
       return ReportIngestionController.runPipeline(req, res, match, parseResult);
     } catch (error: any) {

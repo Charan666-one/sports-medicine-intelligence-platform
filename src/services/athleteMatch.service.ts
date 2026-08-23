@@ -31,9 +31,11 @@ export class AthleteMatchService {
     const detected =
       this.detectFromText(params.rawText) ?? this.detectFromFileName(params.fileName);
 
-    // 1. Try to match an existing athlete by normalised name.
+    // 1. Try to match an existing athlete by normalised name — scoped to the
+    //    uploader's organization so a report can never attach to another
+    //    tenant's athlete.
     if (detected) {
-      const existing = await this.findExisting(detected);
+      const existing = await this.findExisting(detected, params.organizationId);
       if (existing) {
         logger.info(`🔗 Matched upload to existing athlete "${existing.name}" (${existing.id})`);
         return {
@@ -107,9 +109,11 @@ export class AthleteMatchService {
     return name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   }
 
-  private static async findExisting(detected: string) {
+  private static async findExisting(detected: string, organizationId?: string) {
     const key = this.normalizeKey(detected);
-    const candidates = await db.athlete.findMany({ where: { deletedAt: null } });
+    const candidates = await db.athlete.findMany({
+      where: { deletedAt: null, ...(organizationId ? { organizationId } : {}) },
+    });
 
     // Exact normalised match first.
     let best = candidates.find((a) => this.normalizeKey(a.name) === key);

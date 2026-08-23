@@ -44,19 +44,16 @@ export class AuthController {
       const existing = await db.user.findUnique({ where: { email } });
       if (existing) throw new BadRequestError('An account with this email already exists.');
 
-      // Resolve or create an organization + a default role.
-      let org = organizationName
-        ? await db.organization.findFirst({ where: { name: organizationName } })
-        : await db.organization.findFirst();
-      if (!org) {
-        org = await db.organization.create({
-          data: { name: organizationName || 'Default Organization', slug: `org-${Date.now()}` },
-        });
-      }
-      let role = await db.role.findFirst({ where: { organizationId: org.id, name: 'ANALYST' } });
-      if (!role) {
-        role = await db.role.create({ data: { name: 'ANALYST', organizationId: org.id, description: 'Default analyst role' } });
-      }
+      // Self-registration ALWAYS provisions an isolated organization, so a
+      // public signup can never attach itself to an existing tenant's data.
+      // (Joining an existing org must go through an invite/admin flow.)
+      const orgName = organizationName?.trim() || `${name}'s Workspace`;
+      const slug = `org-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      const org = await db.organization.create({ data: { name: orgName, slug } });
+      // The first user of a new workspace owns it (ADMIN of their own org).
+      const role = await db.role.create({
+        data: { name: 'ADMIN', organizationId: org.id, description: 'Workspace owner' },
+      });
 
       const hashed = await bcrypt.hash(password, 12);
       const user = await db.user.create({
@@ -64,7 +61,12 @@ export class AuthController {
         include: { role: true },
       });
 
-      await AuditService.log({ userId: user.id, action: 'USER_REGISTER', details: `New account ${email}`, req });
+      await AuditService.log({
+        userId: user.id,
+        action: 'USER_REGISTER',
+        details: `New account ${email} (isolated org ${org.id})`,
+        req,
+      });
       const token = signToken(user);
       res.status(201).json({ status: 'success', data: { token, user: publicUser(user) } });
     } catch (error) {

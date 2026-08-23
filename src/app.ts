@@ -69,7 +69,9 @@ export async function createApp() {
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.resolve(__dirname, '../../dist');
+    // Server runs from src/ (via tsx), so the built SPA is at <root>/dist,
+    // i.e. one level up from this file's directory.
+    const distPath = path.resolve(__dirname, '../dist');
     app.use(express.static(distPath));
     app.get('*', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
