@@ -5,6 +5,7 @@ import * as ss from 'simple-statistics';
 import { ExplainabilityService, XAIReport } from './explainability.service.js';
 import { SocketService } from './socket.service.js';
 import { isGeminiEnabled } from '../config/index.js';
+import { evaluateAnomalySignals } from './anomalyScoring.js';
 
 export interface AIPredictionResult {
   riskLevel: 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL';
@@ -51,19 +52,11 @@ export class AIEngineService {
     const dataPoints = this.prepareFeatures(athlete);
     const latestFeatures = dataPoints[0];
 
-    // 2. Anomaly Detection (Isolation Forest)
-    let isAnomaly = false;
-    let anomalyScore = 0;
-    
-    if (dataPoints.length >= 5) {
-      const iforest = new IsolationForest({ nEstimators: 100 });
-      const vectors = dataPoints.map((p: any) => this.featureVector(p));
-      // ml-isolation-forest API: train() builds the forest, predict() returns anomaly scores
-      iforest.train(vectors);
-      const scores = iforest.predict(vectors);
-      anomalyScore = Math.abs(scores[0]);
-      isAnomaly = anomalyScore > 0.65;
-    }
+    // 2. Anomaly Detection — robust blend of personal-baseline z-scores,
+    //    population-level physiological red flags, and Isolation Forest.
+    const anomaly = this.detectAnomaly(dataPoints);
+    const isAnomaly = anomaly.isAnomaly;
+    const anomalyScore = anomaly.score;
 
     // 3. Risk Classification (Random Forest Logic)
     const riskAnalysis = this.calculateRiskClass(latestFeatures);
@@ -170,6 +163,43 @@ export class AIEngineService {
 
   private static featureVector(f: any): number[] {
     return [f.hemoglobin, f.hematocrit, f.testosteroneRatio, f.reticulocyte, f.epo, f.stabilityIndex];
+  }
+
+  /**
+   * Detects atypical physiological patterns by combining three independent
+   * signals, so an obvious doping spike is caught even on small datasets:
+   *   (a) Personal-baseline z-score + (b) population red flags (see
+   *       anomalyScoring.evaluateAnomalySignals), plus
+   *   (c) Isolation Forest — multivariate outlier score (needs >= 5 points).
+   * The overall anomaly score is the strongest of the three (0..1).
+   */
+  private static detectAnomaly(dataPoints: any[]): {
+    score: number;
+    isAnomaly: boolean;
+    maxZ: number;
+    drivers: string[];
+  } {
+    const latest = dataPoints[0];
+    const history = dataPoints.slice(1).filter(Boolean);
+    const signals = evaluateAnomalySignals(latest, history);
+
+    // (c) Isolation Forest multivariate outlier score.
+    let forestScore = 0;
+    if (dataPoints.length >= 5) {
+      try {
+        const iforest = new IsolationForest({ nEstimators: 100 });
+        const vectors = dataPoints.map((p: any) => this.featureVector(p));
+        iforest.train(vectors);
+        const scores = iforest.predict(vectors);
+        forestScore = Math.min(1, Math.abs(scores[0]));
+      } catch {
+        /* isolation forest is a best-effort signal */
+      }
+    }
+
+    const score = Math.max(signals.statScore, signals.popScore, forestScore);
+    const isAnomaly = signals.isFlagged || forestScore > 0.65;
+    return { score: Number(score.toFixed(3)), isAnomaly, maxZ: signals.maxZ, drivers: signals.drivers };
   }
 
   private static calculateRiskClass(f: any) {
