@@ -9,7 +9,6 @@ AI-powered biological-passport and athlete-intelligence monitoring system.
 - **Frontend:** React 19 + Vite + TypeScript + Tailwind
 - **Backend:** Node.js (Express) + Prisma + SQLite + Socket.IO
 - **AI/ML:** In-process risk & anomaly engine (`ml-random-forest`, `ml-isolation-forest`, `simple-statistics`) with optional Gemini LLM enhancement
-- **Optional ML micro-service:** Python FastAPI (`ml-service/`)
 
 The Express server serves the API **and** the Vite frontend from a single
 process, so you only need to run one command.
@@ -115,15 +114,3 @@ The image builds the frontend, pushes the Prisma schema on start, and serves the
 API + frontend on port 3000. Uploads, the OCR model, and the SQLite DB persist on
 named volumes. For Postgres, uncomment the `db` service in `docker-compose.yml`
 and switch the datasource provider in `prisma/schema.prisma`.
-
-## Optional Python ML service
-
-The FastAPI service in `ml-service/` is standalone and not required by the
-Node app. To run it:
-
-```bash
-cd ml-service
-pip install -r requirements.txt
-python train_model.py   # generates ml-service/saved_models/*
-uvicorn app:app --reload --port 8000
-```

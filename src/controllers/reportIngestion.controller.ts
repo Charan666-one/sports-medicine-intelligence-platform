@@ -8,6 +8,7 @@ import { AthleteMatchService } from '../services/athleteMatch.service.js';
 import { SocketService } from '../services/socket.service.js';
 import { getSystemUserId } from '../utils/systemUser.js';
 import { AuditService } from '../services/audit.service.js';
+import { orgId } from '../utils/scope.js';
 
 export class ReportIngestionController {
   /**
@@ -18,7 +19,10 @@ export class ReportIngestionController {
     const file = req.file;
     if (!file) return res.status(400).json({ status: 'error', message: 'No file uploaded' });
 
-    const athlete = await db.athlete.findUnique({ where: { id: athleteId } });
+    // Only allow ingestion for an athlete in the caller's organization.
+    const athlete = await db.athlete.findFirst({
+      where: { id: athleteId, organizationId: orgId(req), deletedAt: null },
+    });
     if (!athlete) {
       return res.status(404).json({ status: 'error', message: 'Athlete not found in database. Clinical intake aborted.' });
     }
@@ -183,7 +187,8 @@ export class ReportIngestionController {
     const { athleteId } = req.params;
     try {
       const reports = await db.medicalReport.findMany({
-        where: { athleteId },
+        // Scope to the caller's organization via the athlete relation.
+        where: { athleteId, athlete: { organizationId: orgId(req) } },
         orderBy: { createdAt: 'desc' },
         include: { testResults: true },
       });

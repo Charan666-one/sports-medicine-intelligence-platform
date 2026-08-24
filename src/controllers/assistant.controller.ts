@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { InvestigationAssistantService } from '../services/investigationAssistant.service.js';
+import { assertAthleteInOrg } from '../utils/scope.js';
 
 export class AssistantController {
   static async ask(req: Request, res: Response) {
@@ -11,6 +12,7 @@ export class AssistantController {
     }
 
     try {
+      await assertAthleteInOrg(req, athleteId);
       const response = await InvestigationAssistantService.handleQuery(query, athleteId);
       res.json({ status: 'success', data: response });
     } catch (error: any) {

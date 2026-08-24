@@ -4,11 +4,13 @@ import { getSystemUserId } from '../utils/systemUser.js';
 import { NotFoundError } from '../errors/AppError.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { geminiApiKey } from '../config/index.js';
+import { orgId, assertAthleteInOrg } from '../utils/scope.js';
 
 export class ReportController {
   static async getAllReports(req: Request, res: Response, next: NextFunction) {
     try {
       const reports = await db.medicalReport.findMany({
+        where: { athlete: { organizationId: orgId(req) } },
         include: {
           athlete: {
             include: {
@@ -29,11 +31,11 @@ export class ReportController {
   static async getReportById(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const report = await db.medicalReport.findUnique({
-        where: { id },
-        include: { 
+      const report = await db.medicalReport.findFirst({
+        where: { id, athlete: { organizationId: orgId(req) } },
+        include: {
           athlete: true,
-          testResults: true 
+          testResults: true
         }
       });
 
@@ -48,13 +50,15 @@ export class ReportController {
   static async createReport(req: Request, res: Response, next: NextFunction) {
     try {
       const { type, athleteId, description } = req.body;
-      const systemUserId = await getSystemUserId();
+      // Ensure the target athlete belongs to the caller's organization.
+      await assertAthleteInOrg(req, athleteId);
+      const creatorId = req.user?.id ?? (await getSystemUserId());
       const report = await db.medicalReport.create({
         data: {
           type,
           athleteId,
           description,
-          creatorId: systemUserId, // Should be from auth
+          creatorId,
           status: 'COMPLETED'
         }
       });
@@ -67,8 +71,8 @@ export class ReportController {
   static async generateAISummary(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const report = await db.medicalReport.findUnique({
-        where: { id },
+      const report = await db.medicalReport.findFirst({
+        where: { id, athlete: { organizationId: orgId(req) } },
         include: { testResults: true, athlete: true }
       });
 

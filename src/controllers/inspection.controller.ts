@@ -3,11 +3,15 @@ import { db } from '../services/db.js';
 import { getSystemUserId } from '../utils/systemUser.js';
 import { logger } from '../utils/logger.js';
 import { SocketService } from '../services/socket.service.js';
+import { orgId, assertAthleteInOrg } from '../utils/scope.js';
+import { NotFoundError } from '../errors/AppError.js';
 
 export class InspectionController {
   static async createInspection(req: Request, res: Response, next: NextFunction) {
     try {
       const { athleteId, title, description, priority } = req.body;
+      // Only open inspections against athletes in the caller's organization.
+      await assertAthleteInOrg(req, athleteId);
 
       const inspection = await db.inspection.create({
         data: {
@@ -20,10 +24,10 @@ export class InspectionController {
       });
 
       // Log activity
-      const systemUserId = await getSystemUserId();
+      const actingUserId = req.user?.id ?? (await getSystemUserId());
       await db.activityLog.create({
         data: {
-          userId: systemUserId, // In a real app, this would be from auth
+          userId: actingUserId,
           action: 'INSPECTION_CREATED',
           details: `New inspection created for athlete ${athleteId}: ${title}`
         }
@@ -49,6 +53,7 @@ export class InspectionController {
   static async getAthleteInspections(req: Request, res: Response, next: NextFunction) {
     try {
       const { athleteId } = req.params;
+      await assertAthleteInOrg(req, athleteId);
       const inspections = await db.inspection.findMany({
         where: { athleteId },
         orderBy: { createdAt: 'desc' }
@@ -67,6 +72,12 @@ export class InspectionController {
     try {
       const { id } = req.params;
       const data = req.body;
+
+      // Only update an inspection whose athlete is in the caller's organization.
+      const existing = await db.inspection.findFirst({
+        where: { id, athlete: { organizationId: orgId(req) } },
+      });
+      if (!existing) throw new NotFoundError('Inspection not found');
 
       const inspection = await db.inspection.update({
         where: { id },

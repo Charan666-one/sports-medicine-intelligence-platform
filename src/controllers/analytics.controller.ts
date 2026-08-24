@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { db } from '../services/db.js';
+import { orgId } from '../utils/scope.js';
 
 /**
  * Analytics / intelligence endpoints that compute real aggregates from the
@@ -26,17 +27,19 @@ const round = (n: number, d = 1) => Number(n.toFixed(d));
  * GET /api/v1/anti-doping/overview
  * High-level anti-doping intelligence summary.
  */
-export const getAntiDopingOverview = async (_req: Request, res: Response, next: NextFunction) => {
+export const getAntiDopingOverview = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const organizationId = orgId(req);
+    const byAthlete = { athlete: { organizationId } };
     const [totalAthletes, flaggedAthletes, totalReports, flaggedReports, anomalyCount, avgRisk, latestPrediction] =
       await Promise.all([
-        db.athlete.count({ where: { deletedAt: null } }),
-        db.athlete.count({ where: { deletedAt: null, status: 'UNDER_INVESTIGATION' } }),
-        db.medicalReport.count(),
-        db.medicalReport.count({ where: { status: 'FLAGGED' } }),
-        db.aIPrediction.count({ where: { isAnomaly: true } }),
-        db.riskAssessment.aggregate({ _avg: { score: true } }),
-        db.aIPrediction.findFirst({ orderBy: { createdAt: 'desc' }, select: { createdAt: true } }),
+        db.athlete.count({ where: { deletedAt: null, organizationId } }),
+        db.athlete.count({ where: { deletedAt: null, organizationId, status: 'UNDER_INVESTIGATION' } }),
+        db.medicalReport.count({ where: byAthlete }),
+        db.medicalReport.count({ where: { status: 'FLAGGED', ...byAthlete } }),
+        db.aIPrediction.count({ where: { isAnomaly: true, ...byAthlete } }),
+        db.riskAssessment.aggregate({ _avg: { score: true }, where: byAthlete }),
+        db.aIPrediction.findFirst({ where: byAthlete, orderBy: { createdAt: 'desc' }, select: { createdAt: true } }),
       ]);
 
     const complianceRate = totalReports > 0 ? round(((totalReports - flaggedReports) / totalReports) * 100) : 100;
@@ -79,9 +82,10 @@ export const getRiskTrend = async (req: Request, res: Response, next: NextFuncti
     const now = new Date();
     const start = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
 
+    const byAthlete = { athlete: { organizationId: orgId(req) } };
     const [assessments, reports] = await Promise.all([
-      db.riskAssessment.findMany({ where: { createdAt: { gte: start } }, select: { score: true, createdAt: true } }),
-      db.medicalReport.findMany({ where: { createdAt: { gte: start } }, select: { createdAt: true } }),
+      db.riskAssessment.findMany({ where: { createdAt: { gte: start }, ...byAthlete }, select: { score: true, createdAt: true } }),
+      db.medicalReport.findMany({ where: { createdAt: { gte: start }, ...byAthlete }, select: { createdAt: true } }),
     ]);
 
     const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -113,12 +117,12 @@ export const getRiskTrend = async (req: Request, res: Response, next: NextFuncti
  * Average biomarker levels across the roster, expressed as % of clinical
  * baseline — drives the Anti-Doping radar chart.
  */
-export const getMarkerVariance = async (_req: Request, res: Response, next: NextFunction) => {
+export const getMarkerVariance = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const markers = Object.keys(MARKER_BASELINE);
     const grouped = await db.testResult.groupBy({
       by: ['parameter'],
-      where: { parameter: { in: markers } },
+      where: { parameter: { in: markers }, report: { athlete: { organizationId: orgId(req) } } },
       _avg: { value: true },
     });
     const avgByParam = new Map(grouped.map((g) => [g.parameter, g._avg.value ?? 0]));
@@ -147,7 +151,7 @@ export const getLongitudinal = async (req: Request, res: Response, next: NextFun
     const limit = clamp(parseInt(String(req.query.limit ?? '40'), 10) || 40, 1, 200);
 
     const results = await db.testResult.findMany({
-      where: { parameter },
+      where: { parameter, report: { athlete: { organizationId: orgId(req) } } },
       orderBy: { createdAt: 'asc' },
       take: limit,
       select: { value: true, isAtypical: true, createdAt: true },

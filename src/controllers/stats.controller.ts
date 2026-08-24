@@ -1,17 +1,20 @@
 import { Request, Response, NextFunction } from 'express';
 import { db } from '../services/db.js';
 import { getSystemUserId } from '../utils/systemUser.js';
+import { orgId } from '../utils/scope.js';
 
 export const getDashboardStats = async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const organizationId = orgId(req);
+    const byAthlete = { athlete: { organizationId } };
     const [athleteCount, alertCount, pendingReports, totalReports, avgRisk, ocrAgg, predictionCount] = await Promise.all([
-      db.athlete.count({ where: { deletedAt: null } }),
-      db.alert.count({ where: { isResolved: false } }),
-      db.medicalReport.count({ where: { status: 'PENDING' } }),
-      db.medicalReport.count(),
-      db.riskAssessment.aggregate({ _avg: { score: true } }),
-      db.medicalReport.aggregate({ _avg: { ocrConfidence: true }, where: { ocrConfidence: { gt: 0 } } }),
-      db.aIPrediction.count(),
+      db.athlete.count({ where: { deletedAt: null, organizationId } }),
+      db.alert.count({ where: { isResolved: false, ...byAthlete } }),
+      db.medicalReport.count({ where: { status: 'PENDING', ...byAthlete } }),
+      db.medicalReport.count({ where: byAthlete }),
+      db.riskAssessment.aggregate({ _avg: { score: true }, where: byAthlete }),
+      db.medicalReport.aggregate({ _avg: { ocrConfidence: true }, where: { ocrConfidence: { gt: 0 }, ...byAthlete } }),
+      db.aIPrediction.count({ where: byAthlete }),
     ]);
 
     // Real OCR/extraction accuracy from ingested documents (0 → no data yet).
@@ -36,10 +39,13 @@ export const getDashboardStats = async (req: Request, res: Response, next: NextF
 
 export const runGlobalAudit = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const athletes = await db.athlete.findMany({ select: { id: true } });
-    
-    // Simulate a deep audit process
-    const systemUserId = await getSystemUserId();
+    const athletes = await db.athlete.findMany({
+      where: { deletedAt: null, organizationId: orgId(req) },
+      select: { id: true },
+    });
+
+    // Record the audit against the caller's organization.
+    const systemUserId = req.user?.id ?? (await getSystemUserId());
     await db.auditLog.create({
       data: {
         tableName: 'SYSTEM',

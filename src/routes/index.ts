@@ -6,7 +6,7 @@ import inspectionRoutes from './inspection.routes.js';
 import authRoutes from './auth.routes.js';
 import { analyticsRouter, antiDopingRouter } from './analytics.routes.js';
 import { getDashboardStats, runGlobalAudit } from '../controllers/stats.controller.js';
-import { protect } from '../middlewares/auth.middleware.js';
+import { protect, restrictTo } from '../middlewares/auth.middleware.js';
 
 const router = Router();
 
@@ -22,7 +22,7 @@ router.use('/auth', authRoutes);
 router.use(protect);
 
 router.get('/stats', getDashboardStats);
-router.post('/audit', runGlobalAudit);
+router.post('/audit', restrictTo('ADMIN'), runGlobalAudit);
 router.use('/athletes', athleteRoutes);
 router.use('/reports', reportRoutes);
 router.use('/alerts', alertRoutes);

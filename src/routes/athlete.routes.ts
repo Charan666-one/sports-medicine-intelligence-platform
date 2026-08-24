@@ -5,6 +5,7 @@ import { ReportIngestionController } from '../controllers/reportIngestion.contro
 import { AssistantController } from '../controllers/assistant.controller.js';
 import { validate } from '../middlewares/validator.js';
 import { createAthleteSchema } from '../dtos/athlete.dto.js';
+import { restrictTo } from '../middlewares/auth.middleware.js';
 
 const router = Router();
 
@@ -14,7 +15,7 @@ const router = Router();
  * @access Public (for Phase 1)
  */
 router.get('/', athleteController.getAllAthletes);
-router.post('/', validate(createAthleteSchema), athleteController.createAthlete);
+router.post('/', restrictTo('ADMIN'), validate(createAthleteSchema), athleteController.createAthlete);
 
 /**
  * @route GET /api/v1/athletes/:id
@@ -22,7 +23,7 @@ router.post('/', validate(createAthleteSchema), athleteController.createAthlete)
  * @access Public (for Phase 1)
  */
 
-router.post('/recalculate-all', athleteController.recalculateAllAthletesRisk);
+router.post('/recalculate-all', restrictTo('ADMIN'), athleteController.recalculateAllAthletesRisk);
 
 router.get('/:id', athleteController.getAthleteById);
 

@@ -5,14 +5,14 @@ AI-powered biological passport and athlete intelligence monitoring system.
 
 ## Current Stack
 Frontend: React + Vite + TypeScript
-Backend: Node.js
+Backend: Node.js (Express) + Socket.IO
 Database: Prisma + SQLite
-ML Service: Python ML service
+AI/ML: In-process risk & anomaly engine (JS) + OCR (tesseract.js)
 
 ## Folder Structure
 - src
 - prisma
-- ml-service
+- sample-data
 - uploads
 
 ## Important Rules
