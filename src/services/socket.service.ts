@@ -1,6 +1,8 @@
 import { Server as SocketServer } from 'socket.io';
 import { Server as HttpServer } from 'http';
+import jwt from 'jsonwebtoken';
 import { logger } from '../utils/logger.js';
+import { config, corsOrigins } from '../config/index.js';
 
 export class SocketService {
   private static io: SocketServer | null = null;
@@ -9,11 +11,24 @@ export class SocketService {
   static init(server: HttpServer) {
     this.io = new SocketServer(server, {
       cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
+        origin: corsOrigins,
+        methods: ["GET", "POST"],
+        credentials: true,
       },
-      // Ensure it works in the AI Studio iframe environment
       transports: ['websocket', 'polling']
+    });
+
+    // Authenticate every socket connection with the same JWT as the REST API.
+    this.io.use((socket, next) => {
+      const token = (socket.handshake.auth as any)?.token as string | undefined;
+      if (!token) return next(new Error('Unauthorized: missing token'));
+      try {
+        const decoded = jwt.verify(token, config.JWT_SECRET) as { id: string; role?: string };
+        (socket.data as any).user = decoded;
+        next();
+      } catch {
+        next(new Error('Unauthorized: invalid token'));
+      }
     });
 
     this.io.on('connection', (socket) => {

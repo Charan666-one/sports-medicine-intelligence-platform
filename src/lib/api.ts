@@ -20,6 +20,38 @@
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Auth token storage (JWT) — shared by the API client and the auth context
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TOKEN_KEY = 'nexus_token';
+
+export function getAuthToken(): string | null {
+  try {
+    return typeof window !== 'undefined' ? window.localStorage.getItem(TOKEN_KEY) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setAuthToken(token: string | null): void {
+  try {
+    if (typeof window === 'undefined') return;
+    if (token) window.localStorage.setItem(TOKEN_KEY, token);
+    else window.localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* ignore storage errors */
+  }
+}
+
+/** Called when the server rejects the token (401). Clears it and signals the app. */
+function onUnauthorized(): void {
+  setAuthToken(null);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('nexus:unauthorized'));
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Shared Response Types
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -322,6 +354,10 @@ class ApiClient {
       Accept: 'application/json',
     };
 
+    // Attach the JWT from storage, if present, to every request.
+    const token = getAuthToken();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
     let fetchBody: BodyInit | undefined;
 
     if (options.formData) {
@@ -363,6 +399,10 @@ class ApiClient {
 
     // Non-2xx: surface the server's error message before normalising
     if (!response.ok) {
+      // Session expired / invalid — clear the token and let the app redirect.
+      if (response.status === 401 && path !== '/auth/login' && path !== '/auth/register') {
+        onUnauthorized();
+      }
       throw new ApiError({
         message:
           (typeof raw.error   === 'string' ? raw.error   : undefined) ??
@@ -380,35 +420,35 @@ class ApiClient {
 
   // ── Public HTTP primitives ──────────────────────────────────────────────
 
-  async get<T>(
+  async get<T = any>(
     path: string,
     query?: Record<string, string | number | boolean | undefined | null>,
   ): Promise<ApiResponse<T>> {
     return this.request<T>('GET', path, { query });
   }
 
-  async post<T>(
+  async post<T = any>(
     path: string,
     body?: unknown,
   ): Promise<ApiResponse<T>> {
     return this.request<T>('POST', path, { body });
   }
 
-  async postForm<T>(
+  async postForm<T = any>(
     path: string,
     formData: FormData,
   ): Promise<ApiResponse<T>> {
     return this.request<T>('POST', path, { formData });
   }
 
-  async patch<T>(
+  async patch<T = any>(
     path: string,
     body?: unknown,
   ): Promise<ApiResponse<T>> {
     return this.request<T>('PATCH', path, { body });
   }
 
-  async delete<T>(
+  async delete<T = any>(
     path: string,
     body?: unknown,
   ): Promise<ApiResponse<T>> {
@@ -455,12 +495,45 @@ export const antiDopingAPI = {
   /**
    * POST /api/v1/anti-doping/run-audit
    * Triggers an enterprise-wide anti-doping recalculation.
-   * Returns 202 Accepted immediately; processing is async.
    */
   runGlobalAudit(
     payload: RunAuditPayload = {},
   ): Promise<ApiResponse<AuditJobResult>> {
     return client.post<AuditJobResult>('/anti-doping/run-audit', payload);
+  },
+
+  /**
+   * GET /api/v1/anti-doping/marker-variance
+   * Average biomarker levels vs clinical baseline (radar data).
+   */
+  getMarkerVariance(): Promise<ApiResponse<{ markers: { subject: string; A: number; fullMark: number }[] }>> {
+    return client.get('/anti-doping/marker-variance');
+  },
+
+  /**
+   * GET /api/v1/anti-doping/longitudinal
+   * Time series of a single biomarker across athletes (scatter data).
+   */
+  getLongitudinal(
+    parameter = 'Hemoglobin',
+  ): Promise<ApiResponse<{ parameter: string; series: { x: number; y: number; z: number; date: string; atypical: boolean }[] }>> {
+    return client.get('/anti-doping/longitudinal', { parameter });
+  },
+} as const;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Analytics API Module
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const analyticsAPI = {
+  /**
+   * GET /api/v1/analytics/risk-trend
+   * Monthly average risk score + report volume (area chart data).
+   */
+  getRiskTrend(
+    months = 6,
+  ): Promise<ApiResponse<{ trend: { name: string; risk: number; tests: number }[] }>> {
+    return client.get('/analytics/risk-trend', { months });
   },
 } as const;
 
@@ -486,12 +559,12 @@ export const athleteAPI = {
   },
 
   /**
-   * POST /api/v1/athletes/:id/recalculate-risk
+   * POST /api/v1/athletes/:id/recalculate
    * Triggers a risk score recalculation for a single athlete.
    */
   recalculateRisk(id: string): Promise<ApiResponse<RiskRecalculationResult>> {
     return client.post<RiskRecalculationResult>(
-      `/athletes/${encodeURIComponent(id)}/recalculate-risk`,
+      `/athletes/${encodeURIComponent(id)}/recalculate`,
     );
   },
 
@@ -560,6 +633,35 @@ export const alertAPI = {
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Auth API Module
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  role?: { id: string; name: string } | null;
+  [key: string]: unknown;
+}
+
+export interface AuthPayload {
+  token: string;
+  user: AuthUser;
+}
+
+export const authAPI = {
+  login(email: string, password: string): Promise<ApiResponse<AuthPayload>> {
+    return client.post<AuthPayload>('/auth/login', { email, password });
+  },
+  register(input: { email: string; password: string; name: string; organizationName?: string }): Promise<ApiResponse<AuthPayload>> {
+    return client.post<AuthPayload>('/auth/register', input);
+  },
+  me(): Promise<ApiResponse<{ user: AuthUser }>> {
+    return client.get<{ user: AuthUser }>('/auth/me');
+  },
+} as const;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Re-export ApiClient for projects that need custom instances (e.g. testing)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -583,6 +685,7 @@ const api = {
 
   get: client.get.bind(client),
   post: client.post.bind(client),
+  postForm: client.postForm.bind(client),
   patch: client.patch.bind(client),
   delete: client.delete.bind(client),
 
@@ -591,9 +694,11 @@ const api = {
   // ─────────────────────────────────────────
 
   antiDoping: antiDopingAPI,
+  analytics: analyticsAPI,
   athlete: athleteAPI,
   report: reportAPI,
   alert: alertAPI,
+  auth: authAPI,
 } as const;
 
 export { api };

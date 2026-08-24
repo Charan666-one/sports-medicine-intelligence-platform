@@ -1,0 +1,43 @@
+# Local / self-hosted deployment.
+#
+# Default: single container using the built-in SQLite database (persisted on a
+# named volume). For a Postgres deployment, uncomment the `db` service, switch
+# the app's DATABASE_URL, and change the Prisma datasource provider to
+# "postgresql" in prisma/schema.prisma.
+
+services:
+  app:
+    build: .
+    ports:
+      - '3000:3000'
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: 'file:./prisma/dev.db'
+      # Provide strong secrets via a .env file or your orchestrator's secret store.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY}
+      CORS_ORIGIN: ${CORS_ORIGIN:?set CORS_ORIGIN e.g. https://app.example.com}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    volumes:
+      - app_uploads:/app/uploads
+      - app_data:/app/data
+      - app_db:/app/prisma
+    restart: unless-stopped
+
+  # ── Optional Postgres backend ─────────────────────────────────────────────
+  # db:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     POSTGRES_USER: nexus
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+  #     POSTGRES_DB: nexus
+  #   volumes:
+  #     - pg_data:/var/lib/postgresql/data
+  #   restart: unless-stopped
+
+volumes:
+  app_uploads:
+  app_data:
+  app_db:
+  # pg_data:

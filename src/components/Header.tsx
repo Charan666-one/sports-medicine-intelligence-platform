@@ -1,6 +1,8 @@
 import { Search, Bell, Menu } from 'lucide-react';
+import { useAuth } from '../context/AuthContext.js';
 
 export default function Header() {
+  const { user, logout } = useAuth();
   return (
     <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 sticky top-0 z-20 backdrop-blur-md bg-white/80">
       <div className="flex items-center gap-4 flex-1">
@@ -26,7 +28,17 @@ export default function Header() {
           <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
         </button>
         <div className="w-px h-6 bg-slate-200 mx-1"></div>
-        <button className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors">Sign Out</button>
+        {user && (
+          <span className="hidden sm:inline text-sm font-medium text-slate-700 max-w-[160px] truncate" title={String(user.email)}>
+            {String(user.name || user.email)}
+          </span>
+        )}
+        <button
+          onClick={logout}
+          className="text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors"
+        >
+          Sign Out
+        </button>
       </div>
     </header>
   );

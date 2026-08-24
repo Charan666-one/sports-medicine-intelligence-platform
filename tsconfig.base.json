@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+
+    "strict": true,
+    "noImplicitOverride": true,
+    "forceConsistentCasingInFileNames": true,
+
+    "paths": {
+      "@/*": ["./*"]
+    }
+  }
+}

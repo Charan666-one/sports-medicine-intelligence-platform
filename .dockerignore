@@ -1,0 +1,13 @@
+node_modules
+dist
+coverage
+.git
+.github
+.env
+.env.*
+*.log
+prisma/dev.db
+prisma/*.db-journal
+data/tessdata
+uploads
+.DS_Store

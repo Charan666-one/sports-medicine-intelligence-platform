@@ -31,24 +31,6 @@ import {
 } from 'recharts';
 import { api } from '../lib/api.js';
 
-const mockChartData = [
-  { name: 'Jan', risk: 45, tests: 20 },
-  { name: 'Feb', risk: 52, tests: 25 },
-  { name: 'Mar', risk: 48, tests: 18 },
-  { name: 'Apr', risk: 61, tests: 32 },
-  { name: 'May', risk: 55, tests: 28 },
-  { name: 'Jun', risk: 67, tests: 40 },
-];
-
-const mockAIHealth = [
-  { subject: 'Recall', A: 120, B: 110, fullMark: 150 },
-  { subject: 'Precision', A: 98, B: 130, fullMark: 150 },
-  { subject: 'F1 Score', A: 86, B: 130, fullMark: 150 },
-  { subject: 'AUC-ROC', A: 99, B: 100, fullMark: 150 },
-  { subject: 'Stability', A: 85, B: 90, fullMark: 150 },
-  { subject: 'Latency', A: 65, B: 85, fullMark: 150 },
-];
-
 import ActivityStreamPanel from '../components/ActivityStreamPanel.js';
 import LiveAlertFeed from '../components/LiveAlertFeed.js';
 import ConnectedUsersPanel from '../components/ConnectedUsersPanel.js';
@@ -71,6 +53,7 @@ export default function Dashboard() {
   });
   
   const [athletes, setAthletes] = useState<any[]>([]);
+  const [riskTrend, setRiskTrend] = useState<{ name: string; risk: number; tests: number }[]>([]);
 
   const fetchStats = async () => {
     try {
@@ -85,7 +68,10 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchStats();
-    api.get('/athletes').then(res => setAthletes(res.data.athletes));
+    api.get('/athletes').then(res => setAthletes((res.data as any).athletes)).catch(() => {});
+    api.analytics.getRiskTrend(6)
+      .then(res => setRiskTrend((res.data as any)?.trend ?? []))
+      .catch(() => setRiskTrend([]));
   }, []);
 
   const handleCreateInspection = async (e: React.FormEvent) => {
@@ -131,11 +117,12 @@ export default function Dashboard() {
     }
   };
 
+  const ocrRate = stats?.ocrExtractionRate ?? 0;
   const statCards = [
-    { label: 'Total Athletes', value: stats?.totalAthletes || 0, icon: Users, color: 'text-blue-600', bg: 'bg-blue-50', change: '+2.4%', up: true },
-    { label: 'OCR Extraction', value: '98.4%', icon: ClipboardList, color: 'text-emerald-600', bg: 'bg-emerald-50', change: '+1.2%', up: true },
-    { label: 'Active Alerts', value: stats?.activeAlerts || 0, icon: AlertTriangle, color: 'text-red-600', bg: 'bg-red-50', change: '-12%', up: false },
-    { label: 'Medical Intelligence', value: 'ACTIVE', icon: Brain, color: 'text-indigo-600', bg: 'bg-indigo-50', change: '+0.5%', up: true },
+    { label: 'Total Athletes', value: stats?.totalAthletes ?? 0, icon: Users, color: 'text-blue-600', bg: 'bg-blue-50', change: `${stats?.totalReports ?? 0} reports`, up: true },
+    { label: 'OCR Extraction', value: ocrRate > 0 ? `${ocrRate}%` : 'N/A', icon: ClipboardList, color: 'text-emerald-600', bg: 'bg-emerald-50', change: 'live', up: ocrRate >= 80 },
+    { label: 'Active Alerts', value: stats?.activeAlerts ?? 0, icon: AlertTriangle, color: 'text-red-600', bg: 'bg-red-50', change: `${stats?.pendingReports ?? 0} pending`, up: false },
+    { label: 'AI Predictions', value: stats?.intelligencePredictions ?? 0, icon: Brain, color: 'text-indigo-600', bg: 'bg-indigo-50', change: 'computed', up: true },
   ];
 
   return (
@@ -270,13 +257,18 @@ export default function Dashboard() {
               <div className="lg:col-span-2 bg-white p-8 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden group">
                 <div className="flex items-center justify-between mb-8">
                   <h3 className="font-bold text-slate-900 text-lg flex items-center gap-2">
-                     <TrendingUp className="w-5 h-5 text-blue-600" /> Longitudinal AI Projections
+                     <TrendingUp className="w-5 h-5 text-blue-600" /> Longitudinal Risk Trend
                   </h3>
-                  <div className="text-[10px] font-bold text-slate-400 uppercase border border-slate-100 px-3 py-1 rounded-full">90 Day Outlook</div>
+                  <div className="text-[10px] font-bold text-slate-400 uppercase border border-slate-100 px-3 py-1 rounded-full">6 Month History</div>
                 </div>
                 <div className="h-[300px] w-full">
+                  {riskTrend.every(d => d.risk === 0 && d.tests === 0) ? (
+                    <div className="h-full flex items-center justify-center text-center text-slate-400 text-sm">
+                      No risk-assessment history yet. Upload reports and run a Global AI Sync to populate the trend.
+                    </div>
+                  ) : (
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={mockChartData}>
+                    <AreaChart data={riskTrend}>
                       <defs>
                         <linearGradient id="colorRisk" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/>
@@ -293,6 +285,7 @@ export default function Dashboard() {
                       <Area type="monotone" dataKey="risk" stroke="#3b82f6" strokeWidth={4} fillOpacity={1} fill="url(#colorRisk)" />
                     </AreaChart>
                   </ResponsiveContainer>
+                  )}
                 </div>
               </div>
 
@@ -305,10 +298,10 @@ export default function Dashboard() {
                 </h3>
                 <div className="space-y-6">
                   {[
-                    { label: 'Real-Time Surveillance', status: 'ACTIVE', progress: 100 },
-                    { label: 'Deterministic Reasoning', status: 'ACTIVE', progress: 100 },
-                    { label: 'AI Assistance Engine', status: 'ACTIVE', progress: 100 },
-                    { label: 'Operational Sync', status: 'RUNNING', progress: 100 },
+                    { label: 'Real-Time Surveillance', status: stats ? 'ACTIVE' : 'CONNECTING', progress: stats ? 100 : 40 },
+                    { label: 'Deterministic Risk Engine', status: 'ACTIVE', progress: 100 },
+                    { label: 'AI Intelligence Engine', status: (stats?.intelligencePredictions ?? 0) > 0 ? 'ACTIVE' : 'IDLE', progress: (stats?.intelligencePredictions ?? 0) > 0 ? 100 : 25 },
+                    { label: `Reports Processed (${stats?.totalReports ?? 0})`, status: 'SYNCED', progress: 100 },
                   ].map((step, i) => (
                     <div key={i} className="space-y-2">
                       <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-400">

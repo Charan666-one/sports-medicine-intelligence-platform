@@ -1,5 +1,10 @@
 import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
+
+// Default demo login (change after first run). Password is bcrypt-hashed below.
+const ADMIN_EMAIL = 'admin@sportsmed.com';
+const ADMIN_PASSWORD = 'Admin@12345';
 
 async function main() {
   console.log('🚀 Phase 2 Seed: Starting enterprise data population...');
@@ -34,8 +39,8 @@ async function main() {
   // 3. Create Users
   const adminUser = await prisma.user.create({
     data: {
-      email: 'admin@sportsmed.com',
-      password: 'hashed_password_here',
+      email: ADMIN_EMAIL,
+      password: await bcrypt.hash(ADMIN_PASSWORD, 12),
       name: 'Dr. Sarah Smith',
       organizationId: org.id,
       roleId: adminRole.id,
@@ -186,6 +191,7 @@ async function main() {
   });
 
   console.log('✅ Phase 2 Seed: Success! Database fully populated with enterprise entities.');
+  console.log(`\n🔑 Demo login →  email: ${ADMIN_EMAIL}   password: ${ADMIN_PASSWORD}\n`);
 }
 
 main()

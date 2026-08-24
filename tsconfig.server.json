@@ -1,0 +1,22 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "types": ["node"]
+  },
+  "include": [
+    "src/server.ts",
+    "src/app.ts",
+    "src/config",
+    "src/controllers",
+    "src/routes",
+    "src/middlewares",
+    "src/services/*.ts",
+    "src/utils",
+    "src/errors",
+    "src/dtos",
+    "src/constants",
+    "src/types"
+  ],
+  "exclude": ["src/services/socket.client.ts"]
+}

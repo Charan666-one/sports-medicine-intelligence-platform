@@ -1,7 +1,27 @@
+# Dependencies
 node_modules
+
+# Environment / secrets
 .env
+.env.local
+.env.*.local
+
+# Build output
 dist
 .vite
+
+# Runtime data
 uploads
 dev.db
 prisma/dev.db
+prisma/*.db-journal
+
+# ML service artifacts
+ml-service/saved_models
+
+# OCR model data (downloaded by `npm run setup`)
+data/tessdata
+
+# OS / editor cruft
+.DS_Store
+*.log

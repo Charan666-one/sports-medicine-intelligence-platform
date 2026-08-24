@@ -4,14 +4,18 @@ import { getSystemUserId } from '../utils/systemUser.js';
 
 export const getDashboardStats = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const athleteCount = await db.athlete.count();
-    const alertCount = await db.alert.count({ where: { isResolved: false } });
-    const pendingReports = await db.medicalReport.count({ where: { status: 'PENDING' } });
-    
-    // Average risk score
-    const avgRisk = await db.riskAssessment.aggregate({
-      _avg: { score: true }
-    });
+    const [athleteCount, alertCount, pendingReports, totalReports, avgRisk, ocrAgg, predictionCount] = await Promise.all([
+      db.athlete.count({ where: { deletedAt: null } }),
+      db.alert.count({ where: { isResolved: false } }),
+      db.medicalReport.count({ where: { status: 'PENDING' } }),
+      db.medicalReport.count(),
+      db.riskAssessment.aggregate({ _avg: { score: true } }),
+      db.medicalReport.aggregate({ _avg: { ocrConfidence: true }, where: { ocrConfidence: { gt: 0 } } }),
+      db.aIPrediction.count(),
+    ]);
+
+    // Real OCR/extraction accuracy from ingested documents (0 → no data yet).
+    const ocrExtractionRate = ocrAgg._avg.ocrConfidence ? Number((ocrAgg._avg.ocrConfidence * 100).toFixed(1)) : 0;
 
     res.json({
       status: 'success',
@@ -19,7 +23,10 @@ export const getDashboardStats = async (req: Request, res: Response, next: NextF
         totalAthletes: athleteCount,
         activeAlerts: alertCount,
         pendingReports,
-        avgRisk: avgRisk._avg.score || 0
+        totalReports,
+        avgRisk: avgRisk._avg.score || 0,
+        ocrExtractionRate,
+        intelligencePredictions: predictionCount,
       }
     });
   } catch (error) {

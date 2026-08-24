@@ -14,34 +14,60 @@ import AthleteDetail from './pages/AthleteDetail.js';
 import Reports from './pages/Reports.js';
 import AntiDoping from './pages/AntiDoping.js';
 import Alerts from './pages/Alerts.js';
+import Login from './pages/Login.js';
 import { AnimatePresence, motion } from 'motion/react';
+import { AuthProvider, useAuth } from './context/AuthContext.js';
+import { Loader2 } from 'lucide-react';
 
 export default function App() {
   return (
-    <Router>
-      <div className="min-h-screen bg-slate-50 flex">
-        <Toaster position="top-right" richColors />
-        <NotificationCenter />
-        <Sidebar />
+    <AuthProvider>
+      <Router>
+        <Gate />
+      </Router>
+    </AuthProvider>
+  );
+}
 
-        <div className="flex-1 flex flex-col min-w-0">
-          <Header />
+/** Renders the login screen until authenticated, then the full application. */
+function Gate() {
+  const { isAuthenticated, loading } = useAuth();
 
-         <main className="p-6 max-w-7xl mx-auto w-full bg-slate-950">
-            <AnimatePresence mode="wait">
-              <Routes>
-                <Route path="/" element={<PageWrapper><Dashboard /></PageWrapper>} />
-                <Route path="/athletes" element={<PageWrapper><Athletes /></PageWrapper>} />
-                <Route path="/athletes/:id" element={<PageWrapper><AthleteDetail /></PageWrapper>} />
-                <Route path="/reports" element={<PageWrapper><Reports /></PageWrapper>} />
-                <Route path="/anti-doping" element={<PageWrapper><AntiDoping /></PageWrapper>} />
-                <Route path="/alerts" element={<PageWrapper><Alerts /></PageWrapper>} />
-              </Routes>
-            </AnimatePresence>
-          </main>
-        </div>
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <Loader2 className="h-8 w-8 text-indigo-500 animate-spin" />
       </div>
-    </Router>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Login />;
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex">
+      <Toaster position="top-right" richColors />
+      <NotificationCenter />
+      <Sidebar />
+
+      <div className="flex-1 flex flex-col min-w-0">
+        <Header />
+
+        <main className="p-6 max-w-7xl mx-auto w-full bg-slate-950">
+          <AnimatePresence mode="wait">
+            <Routes>
+              <Route path="/" element={<PageWrapper><Dashboard /></PageWrapper>} />
+              <Route path="/athletes" element={<PageWrapper><Athletes /></PageWrapper>} />
+              <Route path="/athletes/:id" element={<PageWrapper><AthleteDetail /></PageWrapper>} />
+              <Route path="/reports" element={<PageWrapper><Reports /></PageWrapper>} />
+              <Route path="/anti-doping" element={<PageWrapper><AntiDoping /></PageWrapper>} />
+              <Route path="/alerts" element={<PageWrapper><Alerts /></PageWrapper>} />
+            </Routes>
+          </AnimatePresence>
+        </main>
+      </div>
+    </div>
   );
 }
 
@@ -57,4 +83,3 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
     </motion.div>
   );
 }
-

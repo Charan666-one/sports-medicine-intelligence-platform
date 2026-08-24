@@ -10,45 +10,50 @@ interface TokenPayload {
 }
 
 /**
- * Middleware to protect routes with JWT authentication.
+ * Protect routes with JWT authentication. Attaches the current user (with role)
+ * to req.user, or rejects with 401.
  */
-export const protect = async (req: Request, res: Response, next: NextFunction) => {
+export const protect = async (req: Request, _res: Response, next: NextFunction) => {
   try {
     let token: string | undefined;
-
-    if (req.headers.authorization?.startsWith('Bearer')) {
-      token = req.headers.authorization.split(' ')[1];
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      token = authHeader.split(' ')[1];
     }
-
     if (!token) {
-      throw new UnauthorizedError('You are not logged in. Please log in to get access.');
+      return next(new UnauthorizedError('You are not logged in. Please log in to get access.'));
     }
 
-    // Verify token
-    const decoded = jwt.verify(token, config.JWT_SECRET) as TokenPayload;
-
-    // Check if user still exists
-    const currentUser = await db.user.findUnique({ where: { id: decoded.id } });
-    if (!currentUser) {
-      throw new UnauthorizedError('The user belonging to this token no longer exists.');
+    let decoded: TokenPayload;
+    try {
+      decoded = jwt.verify(token, config.JWT_SECRET) as TokenPayload;
+    } catch {
+      return next(new UnauthorizedError('Invalid or expired token.'));
     }
 
-    // Grant access to protected route
-    (req as any).user = currentUser;
+    const currentUser = await db.user.findUnique({
+      where: { id: decoded.id },
+      include: { role: true },
+    });
+    if (!currentUser || currentUser.isActive === false) {
+      return next(new UnauthorizedError('The user for this token no longer exists or is inactive.'));
+    }
+
+    req.user = currentUser;
     next();
   } catch (error) {
-    next(new UnauthorizedError('Invalid token or expired.'));
+    next(new UnauthorizedError('Authentication failed.'));
   }
 };
 
 /**
- * Middleware to restrict access based on user roles.
+ * Restrict a route to specific roles (RBAC). Use after `protect`.
  */
 export const restrictTo = (...roles: string[]) => {
-  return (req: Request, res: Response, next: NextFunction) => {
-    const userRole = (req as any).user?.role;
-    if (!roles.includes(userRole)) {
-      throw new ForbiddenError('You do not have permission to perform this action.');
+  return (req: Request, _res: Response, next: NextFunction) => {
+    const userRole = req.user?.role?.name;
+    if (!userRole || !roles.includes(userRole)) {
+      return next(new ForbiddenError('You do not have permission to perform this action.'));
     }
     next();
   };

@@ -3,6 +3,7 @@ import { useDropzone } from 'react-dropzone';
 import { Upload, File, X, CheckCircle2, AlertCircle, Loader2, Cpu, Brain, Database, ShieldCheck, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { socketClient } from '../services/socket.client.js';
+import { api } from '../lib/api.js';
 
 interface UploadDropzoneProps {
   onUploadSuccess: (report: any) => void;
@@ -66,21 +67,12 @@ export default function UploadDropzone({ onUploadSuccess, athleteId }: UploadDro
     formData.append('report', acceptedFiles[0]);
 
     try {
-      const response = await fetch(`/api/v1/athletes/${athleteId}/ingest`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      const resJson = await response.json();
-      console.log('Ingestion Response:', resJson);
-
-      if (!response.ok) {
-        throw new Error(resJson.message || resJson.error || 'Upload failed');
-      }
-
-      onUploadSuccess(resJson.data);
+      // Route through the API client so the JWT (and error normalisation) is
+      // applied — the ingest route is auth-protected.
+      const res = await api.postForm(`/athletes/${encodeURIComponent(athleteId)}/ingest`, formData);
+      onUploadSuccess(res.data);
     } catch (err: any) {
-      setError(err.message);
+      setError(err?.serverMessage || err?.message || 'Upload failed');
     } finally {
       // Don't close immediately so user can see completion
       setTimeout(() => {

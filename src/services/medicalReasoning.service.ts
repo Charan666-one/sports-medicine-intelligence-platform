@@ -52,7 +52,7 @@ export class MedicalReasoningService {
     const analystNarrative = `Longitudinal stability is currently ${ (stabilityIndex * 100).toFixed(1) }%. The primary driver was ${significantImpacts[0]?.name || 'balanced variance'}. High-confidence identification of ${riskLevel.toLowerCase()} risk state.`;
 
     // 5. Longitudinal Insights
-    let longitudinalInsight = stabilityIndex < 0.6 
+    const longitudinalInsight = stabilityIndex < 0.6 
       ? "Significant longitudinal suppression. Pattern inconsistent with documented baseline."
       : "Baseline consistency maintained. Oscillations are within standard cyclical range.";
 

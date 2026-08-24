@@ -1,0 +1,7 @@
+dist
+node_modules
+data
+coverage
+package-lock.json
+prisma/dev.db
+*.md

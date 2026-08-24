@@ -1,4 +1,5 @@
 import { io, Socket } from 'socket.io-client';
+import { getAuthToken } from '../lib/api.js';
 
 class SocketClient {
   private socket: Socket | null = null;
@@ -7,11 +8,13 @@ class SocketClient {
   connect() {
     if (this.socket?.connected) return;
 
-    // In AI Studio, the socket connects back to the same host
+    // Authenticate the realtime channel with the same JWT as the REST API so
+    // medical/anti-doping events are never streamed to anonymous clients.
     this.socket = io({
       transports: ['websocket', 'polling'],
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
+      auth: { token: getAuthToken() ?? undefined },
     });
 
     this.socket.on('connect', () => {
