@@ -7,7 +7,7 @@
 AI-powered biological-passport and athlete-intelligence monitoring system.
 
 - **Frontend:** React 19 + Vite + TypeScript + Tailwind
-- **Backend:** Node.js (Express) + Prisma + SQLite + Socket.IO
+- **Backend:** Node.js (Express) + Prisma + PostgreSQL + Socket.IO
 - **AI/ML:** In-process risk & anomaly engine (`ml-random-forest`, `ml-isolation-forest`, `simple-statistics`) with optional Gemini LLM enhancement
 
 The Express server serves the API **and** the Vite frontend from a single
@@ -15,19 +15,24 @@ process, so you only need to run one command.
 
 ## Run locally
 
-**Prerequisites:** Node.js 20+
+**Prerequisites:** Node.js 20+ and a PostgreSQL 16 database.
 
 ```bash
 # 1. Install dependencies
 npm install
 
-# 2. One-shot bootstrap: creates .env, generates the Prisma client,
-#    creates the SQLite database, and seeds demo data.
+# 2. Start a local PostgreSQL (skip if you already have one)
+docker compose up -d db
+
+# 3. One-shot bootstrap: creates .env (+ strong secrets), generates the Prisma
+#    client, applies migrations, seeds demo data, caches the OCR model.
 npm run setup
 
-# 3. Start the app (API + frontend) on http://localhost:3000
+# 4. Start the app (API + frontend) on http://localhost:3000
 npm run dev
 ```
+
+If you use your own database, point `DATABASE_URL` in `.env` at it before step 3.
 
 That's it — open http://localhost:3000.
 
@@ -82,9 +87,11 @@ no external network calls.
 | Command | Description |
 |---|---|
 | `npm run dev` | Start API + frontend (development) |
-| `npm run setup` | Create `.env` (+ secrets), generate Prisma client, push schema, seed, cache OCR model |
-| `npm run db:push` | Sync the Prisma schema into the database |
+| `npm run setup` | Create `.env` (+ secrets), generate Prisma client, apply migrations, seed, cache OCR model |
+| `npm run db:migrate` | Create/apply a migration in development (`prisma migrate dev`) |
+| `npm run db:migrate:deploy` | Apply committed migrations (CI / production) |
 | `npm run db:seed` | Re-seed demo data |
+| `npm run db:studio` | Open Prisma Studio against the database |
 | `npm run build` | Build the frontend bundle (`dist/`) |
 | `npm run typecheck` | Strict type-check (`tsc --noEmit`); `typecheck:server` checks the backend without DOM libs |
 | `npm run lint` | ESLint (flat config, typescript-eslint); `lint:fix` to auto-fix |
@@ -103,14 +110,41 @@ no external network calls.
 ## Docker
 
 ```bash
-# Build and run (SQLite, single container)
+# Build and run the full stack (app + PostgreSQL)
 JWT_SECRET=$(openssl rand -base64 48) \
 ENCRYPTION_KEY=$(openssl rand -hex 32) \
 CORS_ORIGIN=http://localhost:3000 \
 docker compose up --build
 ```
 
-The image builds the frontend, pushes the Prisma schema on start, and serves the
-API + frontend on port 3000. Uploads, the OCR model, and the SQLite DB persist on
-named volumes. For Postgres, uncomment the `db` service in `docker-compose.yml`
-and switch the datasource provider in `prisma/schema.prisma`.
+The image builds the frontend, applies Prisma migrations on start, and serves the
+API + frontend on port 3000. PostgreSQL data, uploads, and the OCR model persist
+on named volumes.
+
+## Database
+
+PostgreSQL 16 via Prisma, with migrations committed under `prisma/migrations`.
+
+- **Change the schema:** edit `prisma/schema.prisma`, then `npm run db:migrate`
+  (creates a migration and applies it locally).
+- **Deploy:** `npm run db:migrate:deploy` applies committed migrations
+  idempotently — this runs automatically in the Docker image and in CI.
+- **Seed data** lives in `prisma/seed.ts`, deliberately separate from migrations.
+
+### Backup & restore
+
+```bash
+# Backup (compressed custom-format dump)
+pg_dump "$DATABASE_URL" --format=custom --file=nexus-$(date +%F).dump
+
+# Restore into an empty database
+pg_restore --dbname="$DATABASE_URL" --clean --if-exists nexus-2026-01-01.dump
+
+# Verify a restore before trusting it
+psql "$DATABASE_URL" -c 'SELECT count(*) FROM "Athlete";'
+```
+
+Take backups **before every migration deploy**. On managed Postgres (e.g. Render),
+enable the provider's automated daily backups and point-in-time recovery in
+addition to these dumps. Restores must be rehearsed into a scratch database —
+an untested backup is not a backup.

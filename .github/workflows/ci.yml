@@ -10,10 +10,27 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NODE_ENV: test
-      DATABASE_URL: 'file:./dev.db'
+      DATABASE_URL: 'postgresql://nexus:nexus@127.0.0.1:5432/nexus?schema=public'
+      SHADOW_DATABASE_URL: 'postgresql://nexus:nexus@127.0.0.1:5432/nexus_shadow?schema=public'
       JWT_SECRET: 'ci-only-secret-key-not-for-production'
       ENCRYPTION_KEY: 'ci-only-encryption-key-not-for-prod-32b'
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nexus
+          POSTGRES_PASSWORD: nexus
+          POSTGRES_DB: nexus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nexus"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
 
@@ -25,8 +42,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Create shadow database
+        run: PGPASSWORD=nexus psql -h 127.0.0.1 -U nexus -d nexus -c 'CREATE DATABASE nexus_shadow;'
+
       - name: Generate Prisma client
         run: npx prisma generate
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
 
       - name: Type-check
         run: npm run typecheck

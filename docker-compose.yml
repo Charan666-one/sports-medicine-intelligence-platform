@@ -1,20 +1,39 @@
-# Local / self-hosted deployment.
+# Local / self-hosted deployment: app + PostgreSQL.
 #
-# Default: single container using the built-in SQLite database (persisted on a
-# named volume). For a Postgres deployment, uncomment the `db` service, switch
-# the app's DATABASE_URL, and change the Prisma datasource provider to
-# "postgresql" in prisma/schema.prisma.
+#   docker compose up -d db      # just the database (for `npm run dev`)
+#   docker compose up --build    # full stack
+#
+# Provide strong secrets via a .env file or your orchestrator's secret store.
 
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: nexus
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nexus}
+      POSTGRES_DB: nexus
+    ports:
+      - '5432:5432'
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U nexus -d nexus']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   app:
     build: .
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
       - '3000:3000'
     environment:
       NODE_ENV: production
       PORT: 3000
-      DATABASE_URL: 'file:./prisma/dev.db'
-      # Provide strong secrets via a .env file or your orchestrator's secret store.
+      DATABASE_URL: 'postgresql://nexus:${POSTGRES_PASSWORD:-nexus}@db:5432/nexus?schema=public'
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY}
       CORS_ORIGIN: ${CORS_ORIGIN:?set CORS_ORIGIN e.g. https://app.example.com}
@@ -22,22 +41,9 @@ services:
     volumes:
       - app_uploads:/app/uploads
       - app_data:/app/data
-      - app_db:/app/prisma
     restart: unless-stopped
 
-  # ── Optional Postgres backend ─────────────────────────────────────────────
-  # db:
-  #   image: postgres:16-alpine
-  #   environment:
-  #     POSTGRES_USER: nexus
-  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
-  #     POSTGRES_DB: nexus
-  #   volumes:
-  #     - pg_data:/var/lib/postgresql/data
-  #   restart: unless-stopped
-
 volumes:
+  pg_data:
   app_uploads:
   app_data:
-  app_db:
-  # pg_data:

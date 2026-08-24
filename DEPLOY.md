@@ -10,9 +10,10 @@ This repo ships a **Render Blueprint** (`render.yaml`).
 
 1. Push this branch to GitHub (already done).
 2. In Render: **New → Blueprint** → select this repository.
-3. Render reads `render.yaml`, builds the Dockerfile, generates strong
-   `JWT_SECRET` and `ENCRYPTION_KEY`, and attaches a 1 GB persistent disk for the
-   SQLite database.
+3. Render reads `render.yaml`, provisions a **managed PostgreSQL** instance and
+   injects its `DATABASE_URL`, builds the Dockerfile, generates strong
+   `JWT_SECRET` and `ENCRYPTION_KEY`, and attaches a 1 GB disk for uploads.
+   Prisma migrations are applied automatically on each boot.
 4. After the first deploy, copy your service URL (e.g.
    `https://nexus-sports-medicine.onrender.com`) and set **`CORS_ORIGIN`** to it
    in the service's Environment tab, then redeploy.
@@ -44,9 +45,9 @@ Or use `docker compose up --build` (see `docker-compose.yml`).
 npm ci
 npm run build
 NODE_ENV=production \
-DATABASE_URL="file:./prisma/prod.db" \
+DATABASE_URL="postgresql://user:pass@host:5432/nexus?schema=public" \
 JWT_SECRET=... ENCRYPTION_KEY=... CORS_ORIGIN=https://your-domain \
-npx prisma db push && npm run start
+npx prisma migrate deploy && npm run start
 ```
 
 ## Production notes
@@ -54,9 +55,10 @@ npx prisma db push && npm run start
 - **Secrets** (`JWT_SECRET`, `ENCRYPTION_KEY`) are required in production and must
   be strong; `ENCRYPTION_KEY` must stay **stable** or encrypted rows become
   unreadable. Render generates and persists them for you.
-- **Database**: SQLite on a persistent disk is fine for a single instance / demo.
-  For multi-instance or heavier load, migrate to **Postgres** (switch the Prisma
-  datasource provider and `DATABASE_URL`) and use Prisma migrations.
+- **Database**: PostgreSQL 16. Schema changes ship as committed Prisma migrations
+  and are applied with `prisma migrate deploy` on boot. **Take a backup before
+  every deploy** that carries a migration (see the Backup & restore section in
+  the README) and enable your provider's automated backups / PITR.
 - **Uploads**: uploaded file binaries are written to `/app/uploads` (ephemeral).
   The extracted data is persisted in the DB; mount a disk there too if you need to
   retain the original files.

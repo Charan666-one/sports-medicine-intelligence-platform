@@ -12,9 +12,9 @@ dist
 
 # Runtime data
 uploads
-dev.db
-prisma/dev.db
-prisma/*.db-journal
+# Legacy SQLite artifacts (project uses PostgreSQL)
+*.db
+*.db-journal
 
 # OCR model data (downloaded by `npm run setup`)
 data/tessdata
