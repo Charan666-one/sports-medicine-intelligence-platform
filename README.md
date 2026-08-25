@@ -89,6 +89,16 @@ this is deliberately **not** a microservice.
   its own, so `SocketService` publishes events over Redis pub/sub, and the API
   process relays them to connected clients — the frontend still gets live
   `pipeline:update` / `ingestion:completed` / `ingestion:failed` events.
+- **Storage** (`src/services/storage.service.ts`): where the uploaded file
+  bytes end up. `STORAGE_DRIVER=local` (default) keeps them on the
+  container's own disk — simple, but not durable and only works when the
+  API and worker share a filesystem. `STORAGE_DRIVER=s3` uploads to an
+  S3-compatible bucket instead (real AWS S3 or any compatible endpoint —
+  MinIO, R2, etc.) and is what the worker actually reads from during
+  parsing (`StorageService.materializeLocal` downloads to a temp file,
+  parses, then deletes the temp copy — OCR/PDF/CSV parsing itself is
+  unchanged, it always sees a local path). See `.env.example` for the
+  `STORAGE_S3_*` vars and `DEPLOY.md` for when this is required vs. optional.
 
 Run the worker with `npm run worker` (dev, hot-reload) or
 `npm run start:worker` (production). It must be running for uploads to

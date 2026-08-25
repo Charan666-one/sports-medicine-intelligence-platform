@@ -6,6 +6,7 @@ import { AIEngineService } from './aiEngine.service.js';
 import { AthleteMatchService } from './athleteMatch.service.js';
 import { SocketService } from './socket.service.js';
 import { AuditService } from './audit.service.js';
+import { StorageService } from './storage.service.js';
 
 /**
  * The actual ingestion pipeline — OCR/parse → athlete match → validate →
@@ -54,10 +55,18 @@ export async function runIngestionPipeline(
   //    whole pipeline was moved off the HTTP request path to isolate.
   await onProgress(10, 'OCR_PARSING');
   let parseResult: ParsingResult;
+  // `filePath` may be a local path (default `local` storage driver) or an
+  // `s3://` reference (`s3` driver) — the OCR/PDF/CSV parsers below all read
+  // via local `fs` APIs, so materialize a local copy first. This is a no-op
+  // passthrough for the local driver; for s3 it downloads to a temp file
+  // that's cleaned up after parsing regardless of success/failure.
+  const { path: localPath, cleanup } = await StorageService.materializeLocal(filePath);
   try {
-    parseResult = await DocumentParserService.parseDocument(filePath, mimeType);
+    parseResult = await DocumentParserService.parseDocument(localPath, mimeType);
   } catch (parseErr: any) {
     throw new Error(`OCR/parsing failed: ${parseErr.message}`);
+  } finally {
+    await cleanup();
   }
 
   // 2. Resolve the athlete — explicit for /athletes/:id/ingest, auto-matched

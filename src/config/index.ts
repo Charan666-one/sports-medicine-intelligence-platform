@@ -35,6 +35,25 @@ const envSchema = z.object({
   // Redis connection for the ingestion queue (BullMQ). Required for both the
   // API process (to enqueue jobs and receive worker events) and the worker.
   REDIS_URL: z.string().default('redis://127.0.0.1:6379'),
+
+  // Uploaded medical report storage. `local` (default) writes to the
+  // container's own disk — fine for a single-instance dev/demo setup, but NOT
+  // durable: it does not survive a redeploy/restart on most PaaS targets and
+  // is not shared between the API and worker if either ever scales to more
+  // than one instance. `s3` persists to an S3-compatible bucket instead
+  // (AWS S3, or any S3-compatible endpoint like MinIO/R2/Backblaze via
+  // STORAGE_S3_ENDPOINT). See ENGINEERING_READINESS.md blocker B1.
+  STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
+  STORAGE_S3_BUCKET: z.string().optional(),
+  STORAGE_S3_REGION: z.string().default('us-east-1'),
+  // Only needed for non-AWS S3-compatible providers (MinIO, R2, etc). Leave
+  // unset to use real AWS S3.
+  STORAGE_S3_ENDPOINT: z.string().optional(),
+  STORAGE_S3_ACCESS_KEY_ID: z.string().optional(),
+  STORAGE_S3_SECRET_ACCESS_KEY: z.string().optional(),
+  // Path-style addressing (bucket.example.com/key vs example.com/bucket/key)
+  // — required by most self-hosted S3-compatible servers.
+  STORAGE_S3_FORCE_PATH_STYLE: z.coerce.boolean().default(false),
 })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production') {
@@ -47,6 +66,9 @@ const envSchema = z.object({
       if (!env.CORS_ORIGIN || env.CORS_ORIGIN === '*') {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['CORS_ORIGIN'], message: 'CORS_ORIGIN must be an explicit origin list in production (not "*")' });
       }
+    }
+    if (env.STORAGE_DRIVER === 's3' && !env.STORAGE_S3_BUCKET) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['STORAGE_S3_BUCKET'], message: 'STORAGE_S3_BUCKET is required when STORAGE_DRIVER=s3' });
     }
   });
 

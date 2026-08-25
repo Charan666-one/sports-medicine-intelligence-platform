@@ -46,16 +46,19 @@ ingestion-worker service definition.
 Optional: set `GEMINI_API_KEY` to enable LLM-enhanced summaries.
 
 > ⚠ **The `nexus-ingestion-worker` service in `render.yaml` is defined but
-> `autoDeploy: false` — do not enable it as-is.** Render disks cannot be
-> attached to more than one service, so the worker can't read files the
-> web service wrote to local disk. Report uploads will queue but never
-> process until either (a) you run the worker as a second process
+> `autoDeploy: false` — do not enable it as-is with the default `local`
+> storage driver.** Render disks cannot be attached to more than one
+> service, so the worker can't read files the web service wrote to local
+> disk. Report uploads will queue but never process until either (a) you
+> set `STORAGE_DRIVER=s3` plus the `STORAGE_S3_*` vars on **both** the web
+> and worker services (see `.env.example`) so uploads go to a shared bucket
+> instead of the per-service disk — the fix, and the recommended setup for
+> this service split — or (b) you run the worker as a second process
 > alongside the web service on the same host instead of a separate Render
-> service, or (b) Phase 2 (S3-compatible object storage) replaces local
-> disk as the upload backing store — tracked in `ENGINEERING_READINESS.md`.
-> Async ingestion is fully functional today via docker-compose or any
-> single-host deployment (Option B/C below), where both processes share a
-> filesystem.
+> service. Async ingestion is fully functional today via docker-compose or
+> any single-host deployment (Option B/C below) even on the `local` driver,
+> where both processes share a filesystem; the S3 driver is what makes the
+> split-service Render layout (and any multi-instance deployment) safe.
 
 ## Option B — Any Docker host (Fly.io, Railway, a VM)
 
@@ -90,6 +93,11 @@ docker run -d --name nexus-worker \
 Or use `docker compose up --build`, which wires all four services (`db`,
 `redis`, `app`, `worker`) with a shared uploads volume — see
 `docker-compose.yml`.
+
+The shared `-v nexus_uploads:/app/uploads` volume above is only needed for
+the default `local` storage driver. Add `-e STORAGE_DRIVER=s3` plus the
+`STORAGE_S3_*` vars to both the API and worker commands instead and the
+volume becomes unnecessary — each process talks to the bucket directly.
 
 ## Option C — Node without Docker
 
@@ -144,10 +152,16 @@ need it for real.
 - **Redis**: required for the ingestion queue (BullMQ) and the realtime
   event bridge between the worker and API processes. Not optional in
   production — without it, uploads queue but are never processed.
-- **Uploads**: uploaded file binaries are written to `/app/uploads`
-  (ephemeral unless mounted). Both the API and worker processes need
-  access to the **same** uploads path — see the disk-sharing warning under
-  Option A. The extracted/parsed data is persisted in the DB regardless.
+- **Uploads**: by default (`STORAGE_DRIVER=local`) uploaded file binaries
+  are written to `/app/uploads` (ephemeral unless mounted), and the API and
+  worker processes need access to the **same** uploads path — see the
+  disk-sharing warning under Option A. Set `STORAGE_DRIVER=s3` (plus the
+  `STORAGE_S3_*` vars — any S3-compatible endpoint works, not just AWS) to
+  persist uploads to a bucket instead; this is required for any deployment
+  where the API and worker don't share a filesystem, and recommended for
+  production regardless (a local disk is not durable across
+  redeploys/restarts). The extracted/parsed biomarker data is persisted in
+  the DB either way, independent of where the original file bytes live.
 - **Rate limiting** is in-memory; for multiple API instances behind a load
   balancer, back it with Redis instead (not yet implemented — tracked in
   `ENGINEERING_READINESS.md`).

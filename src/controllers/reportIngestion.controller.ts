@@ -1,10 +1,12 @@
 import { Request, Response } from 'express';
+import fs from 'fs/promises';
 import { db } from '../services/db.js';
 import { logger } from '../utils/logger.js';
 import { getSystemUserId } from '../utils/systemUser.js';
 import { orgId } from '../utils/scope.js';
 import { sha256File } from '../utils/checksum.js';
 import { enqueueIngestionJob } from '../queues/ingestion.queue.js';
+import { StorageService } from '../services/storage.service.js';
 
 /**
  * Ingestion is asynchronous (Phase 3): the API validates the upload, records
@@ -48,6 +50,10 @@ export class ReportIngestionController {
     const uploaderId = req.user?.id ?? (await getSystemUserId());
 
     try {
+      // Checksum the bytes multer staged locally, before storage decides
+      // whether that staging copy stays (local driver) or is uploaded to S3
+      // and removed (s3 driver) — either way this is the identity of what
+      // was uploaded.
       const checksum = await sha256File(file.path);
 
       // Idempotency: a duplicate submission (double-click, client retry) of the
@@ -59,6 +65,10 @@ export class ReportIngestionController {
       });
       if (existing) {
         logger.info(`↩ Duplicate upload (checksum ${checksum.slice(0, 12)}…) — reusing job ${existing.id}`);
+        // The just-staged local copy was never handed off to storage for this
+        // request (we're short-circuiting to the existing job) — remove it so
+        // it doesn't linger as an orphaned duplicate on disk.
+        await fs.unlink(file.path).catch(() => {});
         return res.status(existing.status === 'COMPLETED' ? 200 : 202).json({
           status: 'success',
           message: existing.status === 'COMPLETED' ? 'Already ingested' : 'Ingestion already in progress',
@@ -66,13 +76,19 @@ export class ReportIngestionController {
         });
       }
 
+      // Hand off to durable storage (ENGINEERING_READINESS.md blocker B1):
+      // no-op passthrough on the default `local` driver, upload-then-delete
+      // on the `s3` driver. `filePath` from here on is whatever reference
+      // (local path or s3:// URI) the worker needs to read the bytes back.
+      const filePath = await StorageService.persist(file.path, file.originalname, file.mimetype);
+
       const job = await db.ingestionJob.create({
         data: {
           organizationId,
           athleteId,
           uploaderId,
           fileName: file.originalname,
-          filePath: file.path,
+          filePath,
           mimeType: file.mimetype,
           sizeBytes: file.size,
           checksum,
@@ -84,7 +100,7 @@ export class ReportIngestionController {
         ingestionJobId: job.id,
         organizationId,
         uploaderId,
-        filePath: file.path,
+        filePath,
         fileName: file.originalname,
         mimeType: file.mimetype,
         athleteId,
