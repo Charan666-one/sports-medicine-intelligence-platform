@@ -1,11 +1,29 @@
 import { Server as SocketServer } from 'socket.io';
 import { Server as HttpServer } from 'http';
 import jwt from 'jsonwebtoken';
+import { Redis } from 'ioredis';
 import { logger } from '../utils/logger.js';
 import { config, corsOrigins } from '../config/index.js';
+import { createRedisConnection } from '../queues/connection.js';
 
+const REALTIME_CHANNEL = 'nexus:realtime';
+
+/**
+ * Realtime event gateway.
+ *
+ * Runs in two roles depending on the process:
+ *   - API process: `init(server)` attaches a Socket.IO server; `emit()` pushes
+ *     directly to connected clients.
+ *   - Worker process (Phase 3 async ingestion): has no HTTP server or connected
+ *     clients of its own. `initPublisher()` instead opens a Redis publisher so
+ *     `emit()` transparently forwards events over Redis pub/sub to the API
+ *     process, which relays them to clients. Every existing `emit*` call site
+ *     (AIEngineService, controllers, the ingestion pipeline) works unmodified
+ *     in both processes because they all funnel through `emit()`.
+ */
 export class SocketService {
   private static io: SocketServer | null = null;
+  private static redisPub: Redis | null = null;
   private static userCount = 0;
 
   static init(server: HttpServer) {
@@ -49,15 +67,53 @@ export class SocketService {
       });
     });
 
+    // Relay events published by worker processes to connected clients.
+    this.initSubscriber();
+
     return this.io;
   }
 
+  /**
+   * Call from a non-API process (e.g. the ingestion worker) that needs to emit
+   * realtime events but has no Socket.IO server of its own. Events are
+   * published over Redis and relayed by the API process's subscriber.
+   */
+  static initPublisher() {
+    if (this.redisPub) return;
+    this.redisPub = createRedisConnection();
+    this.redisPub.on('error', (err) => logger.error('Realtime publisher Redis error', err));
+  }
+
+  private static initSubscriber() {
+    const sub = createRedisConnection();
+    sub.on('error', (err) => logger.error('Realtime subscriber Redis error', err));
+    sub.subscribe(REALTIME_CHANNEL).catch((err) => logger.error('Failed to subscribe to realtime channel', err));
+    sub.on('message', (_channel, message) => {
+      try {
+        const { event, data } = JSON.parse(message);
+        this.io?.emit(event, data);
+      } catch (err) {
+        logger.error('Failed to relay realtime event from Redis', err);
+      }
+    });
+  }
+
+  static async closeBridge() {
+    await this.redisPub?.quit().catch(() => undefined);
+  }
+
   static emit(event: string, data: any) {
-    if (!this.io) {
-      logger.warn('Socket.io not initialized. Event not sent:', event);
+    if (this.io) {
+      this.io.emit(event, data);
       return;
     }
-    this.io.emit(event, data);
+    if (this.redisPub) {
+      this.redisPub.publish(REALTIME_CHANNEL, JSON.stringify({ event, data })).catch((err) => {
+        logger.error(`Failed to publish realtime event "${event}"`, err);
+      });
+      return;
+    }
+    logger.warn('Socket.io not initialized. Event not sent:', event);
   }
 
   static emitToAthlete(athleteId: string, event: string, data: any) {

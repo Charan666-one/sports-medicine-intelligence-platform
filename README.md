@@ -15,24 +15,30 @@ process, so you only need to run one command.
 
 ## Run locally
 
-**Prerequisites:** Node.js 20+ and a PostgreSQL 16 database.
+**Prerequisites:** Node.js 20+, a PostgreSQL 16 database, and Redis 7.
 
 ```bash
 # 1. Install dependencies
 npm install
 
-# 2. Start a local PostgreSQL (skip if you already have one)
-docker compose up -d db
+# 2. Start local PostgreSQL + Redis (skip if you already have your own)
+docker compose up -d db redis
 
 # 3. One-shot bootstrap: creates .env (+ strong secrets), generates the Prisma
 #    client, applies migrations, seeds demo data, caches the OCR model.
 npm run setup
 
-# 4. Start the app (API + frontend) on http://localhost:3000
+# 4. Start the API + frontend on http://localhost:3000
 npm run dev
+
+# 5. In a second terminal, start the ingestion worker (required — report
+#    uploads are queued by the API and processed by this process; without
+#    it, uploads stay QUEUED forever).
+npm run worker
 ```
 
-If you use your own database, point `DATABASE_URL` in `.env` at it before step 3.
+If you use your own database/Redis, point `DATABASE_URL` / `REDIS_URL` in
+`.env` at them before step 3.
 
 That's it — open http://localhost:3000.
 
@@ -51,12 +57,42 @@ login** (you can also register a new account from the login screen).
 ### Uploading a report (real analysis)
 
 Go to **Reports → Upload**. Drop a **PDF**, **image (PNG/JPG)**, or **CSV** lab
-report. The backend runs the real pipeline — PDF text extraction / OCR / CSV
-parsing → biomarker normalization → physiological validation → deterministic
-risk & anomaly scoring — auto-detects the athlete from the file, and shows the
-computed result. No demo/mock data is generated.
+report. The upload is queued and processed **asynchronously** by the ingestion
+worker (see below) — PDF text extraction / OCR / CSV parsing → biomarker
+normalization → physiological validation → deterministic risk & anomaly
+scoring — auto-detects the athlete from the file. The UI polls the job and/or
+listens for realtime completion events and shows the computed result once
+it's ready. No demo/mock data is generated.
 
 CSV format (header optional): `parameter,value,unit`
+
+## Asynchronous ingestion
+
+Report ingestion (OCR/parsing + risk analysis) runs off the HTTP request path,
+in a separate **worker process** (`src/worker.ts`), not inline in the API
+process (`src/server.ts`). Same codebase and Docker image, two process types —
+this is deliberately **not** a microservice.
+
+- **Queue**: Redis + BullMQ (`src/queues/ingestion.queue.ts`). The API enqueues
+  a job and returns `202 Accepted` immediately with an `ingestionJobId`.
+- **Durable status**: every job is also written to the `IngestionJob` table in
+  Postgres (`QUEUED → PROCESSING → COMPLETED | FAILED | DEAD_LETTER`), so job
+  history and status polling never depend on Redis retention or availability.
+  Poll `GET /api/v1/reports/ingestion-jobs/:id`.
+- **Idempotency**: each upload is checksummed (SHA-256); a duplicate
+  submission (double-click, client retry) within the same organization reuses
+  the existing job instead of processing it twice.
+- **Retry / dead-letter**: jobs retry up to 3 times with exponential backoff;
+  a job that fails on its final attempt is marked `DEAD_LETTER` with the
+  captured error, rather than retried forever or silently dropped.
+- **Realtime bridge**: the worker has no HTTP server or Socket.IO clients of
+  its own, so `SocketService` publishes events over Redis pub/sub, and the API
+  process relays them to connected clients — the frontend still gets live
+  `pipeline:update` / `ingestion:completed` / `ingestion:failed` events.
+
+Run the worker with `npm run worker` (dev, hot-reload) or
+`npm run start:worker` (production). It must be running for uploads to
+actually process — the API only enqueues them.
 
 ### Security & data privacy
 
@@ -87,6 +123,8 @@ no external network calls.
 | Command | Description |
 |---|---|
 | `npm run dev` | Start API + frontend (development) |
+| `npm run worker` | Start the asynchronous ingestion worker (development, hot-reload) |
+| `npm run start:worker` | Start the ingestion worker (production) |
 | `npm run setup` | Create `.env` (+ secrets), generate Prisma client, apply migrations, seed, cache OCR model |
 | `npm run db:migrate` | Create/apply a migration in development (`prisma migrate dev`) |
 | `npm run db:migrate:deploy` | Apply committed migrations (CI / production) |
@@ -110,16 +148,26 @@ no external network calls.
 ## Docker
 
 ```bash
-# Build and run the full stack (app + PostgreSQL)
+# Build and run the full stack (app + worker + PostgreSQL + Redis)
 JWT_SECRET=$(openssl rand -base64 48) \
 ENCRYPTION_KEY=$(openssl rand -hex 32) \
 CORS_ORIGIN=http://localhost:3000 \
 docker compose up --build
 ```
 
-The image builds the frontend, applies Prisma migrations on start, and serves the
-API + frontend on port 3000. PostgreSQL data, uploads, and the OCR model persist
-on named volumes.
+`docker-compose.yml` runs four services: `db` (PostgreSQL), `redis`, `app`
+(API + frontend, port 3000), and `worker` (asynchronous ingestion — same
+image as `app`, different command). The image builds the frontend, applies
+Prisma migrations on start, and serves the API + frontend on port 3000.
+PostgreSQL data, Redis data, uploads, and the OCR model persist on named
+volumes; `app` and `worker` share the `app_uploads` volume so the worker can
+read files the API wrote.
+
+> **Render note:** Render disks cannot be attached to more than one service,
+> so `app` and a separately-deployed `nexus-ingestion-worker` service cannot
+> share local-disk uploads there — see `render.yaml` and
+> `ENGINEERING_READINESS.md` for this known limitation and its fix (Phase 2:
+> S3-compatible object storage).
 
 ## Database
 

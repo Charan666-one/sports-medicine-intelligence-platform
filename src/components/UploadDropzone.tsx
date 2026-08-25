@@ -3,7 +3,7 @@ import { useDropzone } from 'react-dropzone';
 import { Upload, File, X, CheckCircle2, AlertCircle, Loader2, Cpu, Brain, Database, ShieldCheck, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { socketClient } from '../services/socket.client.js';
-import { api } from '../lib/api.js';
+import { athleteAPI, reportAPI } from '../lib/api.js';
 
 interface UploadDropzoneProps {
   onUploadSuccess: (report: any) => void;
@@ -67,10 +67,23 @@ export default function UploadDropzone({ onUploadSuccess, athleteId }: UploadDro
     formData.append('report', acceptedFiles[0]);
 
     try {
-      // Route through the API client so the JWT (and error normalisation) is
-      // applied — the ingest route is auth-protected.
-      const res = await api.postForm(`/athletes/${encodeURIComponent(athleteId)}/ingest`, formData);
-      onUploadSuccess(res.data);
+      // Queues the report for async ingestion (returns immediately, 202/
+      // QUEUED). The OCR/parse/risk pipeline runs in the worker process;
+      // `pipeline:update` socket events (subscribed above) drive the staged
+      // progress UI in the meantime, and we await the job's terminal result
+      // here so onUploadSuccess still receives the real outcome.
+      const queued = await athleteAPI.ingestReport(athleteId, formData);
+      const jobId = queued.data?.ingestionJobId;
+      if (!jobId) throw new Error(queued.message || 'Failed to queue ingestion job.');
+
+      const job = await reportAPI.pollIngestionJob(jobId);
+      if (job.status !== 'COMPLETED') {
+        throw new Error(job.error || 'Ingestion did not complete successfully.');
+      }
+      // `job` carries `reportId` at the top level (consumers such as
+      // MedicalReportIntelligence check `data.reportId`), plus the risk
+      // summary in `job.result`.
+      onUploadSuccess(job);
     } catch (err: any) {
       setError(err?.serverMessage || err?.message || 'Upload failed');
     } finally {

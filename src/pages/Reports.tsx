@@ -20,7 +20,7 @@ import {
   Download
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { api } from '../lib/api.js';
+import { api, reportAPI } from '../lib/api.js';
 
 // ============================================================================
 // ENTERPRISE TYPES & INTERFACES
@@ -199,8 +199,10 @@ export default function Reports() {
     setUploadProgress(10);
     setUploadStage('Uploading document to secure ingestion endpoint...');
 
-    // Drive an indeterminate progress bar while the server does the real work
-    // (OCR/parse → validation → risk computation).
+    // Drive an indeterminate progress bar while the pipeline runs in the
+    // worker process (ingestion is asynchronous — Phase 3). We poll the job
+    // status endpoint for the real outcome; this bar is a visual placeholder
+    // until the first real progress update arrives.
     let ticking = true;
     const tick = async () => {
       let p = 10;
@@ -219,23 +221,30 @@ export default function Reports() {
       const formData = new FormData();
       formData.append('file', uploadFile);
 
-      // Real auto-match ingestion: baseUrl is '/api/v1', so path is relative.
-      const res = await api.postForm('/reports/ingest', formData);
+      // Queues the report for async ingestion and returns immediately
+      // (202/QUEUED) — the OCR/parse/risk pipeline runs in the worker process.
+      const queued = await reportAPI.ingestAutoMatch(formData);
+      const jobId = queued.data?.ingestionJobId;
+      if (!jobId) throw new Error(queued.message || 'Failed to queue ingestion job.');
+
+      setUploadStage('Queued — waiting for the ingestion worker...');
+      const job = await reportAPI.pollIngestionJob(jobId);
       ticking = false;
       await ticker;
 
-      const data: any = res.data || {};
-      const detected = data?.athlete?.detectedName;
-      const matched = data?.athlete?.matched;
-      const biomarkerCount = data?.biomarkers?.length ?? 0;
-      const risk = data?.ai?.riskLevel;
+      if (job.status !== 'COMPLETED') {
+        throw new Error(job.error || 'Ingestion did not complete successfully.');
+      }
+
+      const result = job.result;
+      const biomarkerCount = result?.biomarkerCount ?? 0;
+      const risk = result?.riskLevel;
 
       setUploadProgress(100);
       setUploadStage('Ingestion complete.');
       pushLog('SUCCESS', 'INGEST',
-        `Parsed ${biomarkerCount} biomarkers for ${data?.athlete?.name ?? 'athlete'}` +
-        (risk ? ` — risk ${risk}.` : '.') +
-        (matched ? ' (matched existing athlete)' : detected ? ' (new athlete created)' : ''));
+        `Parsed ${biomarkerCount} biomarkers for ${result?.athleteName ?? 'athlete'}` +
+        (risk ? ` — risk ${risk}.` : '.'));
       addToast('success',
         `Report ingested: ${biomarkerCount} biomarkers extracted${risk ? `, risk ${risk}` : ''}.`);
 

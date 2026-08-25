@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import { z } from 'zod';
 
-dotenv.config();
+dotenv.config({ quiet: true });
 
 const isProd = process.env.NODE_ENV === 'production';
 
@@ -27,6 +27,10 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().default(isProd ? '' : '*'),
 
   GEMINI_API_KEY: z.string().optional(),
+
+  // Redis connection for the ingestion queue (BullMQ). Required for both the
+  // API process (to enqueue jobs and receive worker events) and the worker.
+  REDIS_URL: z.string().default('redis://127.0.0.1:6379'),
 })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production') {

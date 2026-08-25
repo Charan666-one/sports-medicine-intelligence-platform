@@ -269,6 +269,25 @@ export interface ReportListData {
   pagination?: PaginationMeta;
 }
 
+/** Status of an asynchronous ingestion job (Phase 3: queue-backed OCR/parse/risk pipeline). */
+export interface IngestionJobStatus {
+  ingestionJobId: string;
+  status: 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'DEAD_LETTER';
+  stage: string | null;
+  progress: number;
+  reportId: string | null;
+  athleteId: string | null;
+  error: string | null;
+  result: {
+    biomarkerCount: number;
+    riskLevel: string | null;
+    isAnomaly: boolean | null;
+    validationStatus: string;
+    athleteId: string;
+    athleteName: string;
+  } | null;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Alert Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -559,6 +578,19 @@ export const athleteAPI = {
   },
 
   /**
+   * POST /api/v1/athletes/:id/ingest
+   * Queues a report for asynchronous ingestion against a known athlete.
+   * Returns immediately with a QUEUED IngestionJobStatus — follow up with
+   * `reportAPI.pollIngestionJob` / `reportAPI.getIngestionJob`.
+   */
+  ingestReport(id: string, formData: FormData): Promise<ApiResponse<IngestionJobStatus>> {
+    return client.postForm<IngestionJobStatus>(
+      `/athletes/${encodeURIComponent(id)}/ingest`,
+      formData,
+    );
+  },
+
+  /**
    * POST /api/v1/athletes/:id/recalculate
    * Triggers a risk score recalculation for a single athlete.
    */
@@ -607,6 +639,51 @@ export const reportAPI = {
    */
   uploadReport(formData: FormData): Promise<ApiResponse<MedicalReport>> {
     return client.postForm<MedicalReport>('/reports/upload', formData);
+  },
+
+  /**
+   * POST /api/v1/reports/ingest
+   * Queues a report for asynchronous ingestion (auto-matches the athlete).
+   * Returns immediately with a QUEUED IngestionJobStatus — the OCR/parse/
+   * risk pipeline runs off-request in the worker process. Follow up with
+   * `getIngestionJob` / `pollIngestionJob`.
+   */
+  ingestAutoMatch(formData: FormData): Promise<ApiResponse<IngestionJobStatus>> {
+    return client.postForm<IngestionJobStatus>('/reports/ingest', formData);
+  },
+
+  /**
+   * GET /api/v1/reports/ingestion-jobs/:id
+   * Polls the status of a previously-queued ingestion job.
+   */
+  getIngestionJob(jobId: string): Promise<ApiResponse<IngestionJobStatus>> {
+    return client.get<IngestionJobStatus>(`/reports/ingestion-jobs/${encodeURIComponent(jobId)}`);
+  },
+
+  /**
+   * Polls `getIngestionJob` until it reaches a terminal state
+   * (COMPLETED / FAILED / DEAD_LETTER) or `timeoutMs` elapses.
+   * Used by upload UIs so they can await the real ingestion result instead
+   * of the immediate 202/QUEUED response.
+   */
+  async pollIngestionJob(
+    jobId: string,
+    opts: { intervalMs?: number; timeoutMs?: number } = {},
+  ): Promise<IngestionJobStatus> {
+    const intervalMs = opts.intervalMs ?? 1500;
+    const timeoutMs = opts.timeoutMs ?? 120_000;
+    const deadline = Date.now() + timeoutMs;
+    const TERMINAL = new Set(['COMPLETED', 'FAILED', 'DEAD_LETTER']);
+
+    while (true) {
+      const res = await reportAPI.getIngestionJob(jobId);
+      const job = res.data as IngestionJobStatus | undefined;
+      if (job && TERMINAL.has(job.status)) return job;
+      if (Date.now() >= deadline) {
+        throw new Error('Timed out waiting for ingestion to complete. Check the reports list shortly.');
+      }
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
   },
 } as const;
 

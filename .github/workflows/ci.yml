@@ -12,6 +12,7 @@ jobs:
       NODE_ENV: test
       DATABASE_URL: 'postgresql://nexus:nexus@127.0.0.1:5432/nexus?schema=public'
       SHADOW_DATABASE_URL: 'postgresql://nexus:nexus@127.0.0.1:5432/nexus_shadow?schema=public'
+      REDIS_URL: 'redis://127.0.0.1:6379'
       JWT_SECRET: 'ci-only-secret-key-not-for-production'
       ENCRYPTION_KEY: 'ci-only-encryption-key-not-for-prod-32b'
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -27,6 +28,15 @@ jobs:
           - 5432:5432
         options: >-
           --health-cmd "pg_isready -U nexus"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10

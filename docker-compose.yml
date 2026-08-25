@@ -1,7 +1,7 @@
-# Local / self-hosted deployment: app + PostgreSQL.
+# Local / self-hosted deployment: app + worker + PostgreSQL + Redis.
 #
-#   docker compose up -d db      # just the database (for `npm run dev`)
-#   docker compose up --build    # full stack
+#   docker compose up -d db redis   # just the datastores (for `npm run dev` / `npm run worker`)
+#   docker compose up --build       # full stack (API + async ingestion worker)
 #
 # Provide strong secrets via a .env file or your orchestrator's secret store.
 
@@ -23,10 +23,25 @@ services:
       retries: 10
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   app:
     build: .
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     ports:
       - '3000:3000'
@@ -34,6 +49,7 @@ services:
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: 'postgresql://nexus:${POSTGRES_PASSWORD:-nexus}@db:5432/nexus?schema=public'
+      REDIS_URL: 'redis://redis:6379'
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY}
       CORS_ORIGIN: ${CORS_ORIGIN:?set CORS_ORIGIN e.g. https://app.example.com}
@@ -43,7 +59,33 @@ services:
       - app_data:/app/data
     restart: unless-stopped
 
+  # Asynchronous ingestion worker (Phase 3): processes the BullMQ queue that
+  # `app` enqueues report uploads onto. Same image as `app`, different
+  # command — this is a second process of the same codebase, not a separate
+  # microservice/deployable. Uploaded files must be reachable at the same
+  # path, hence the shared `app_uploads` volume.
+  worker:
+    build: .
+    command: ["sh", "-c", "npx prisma migrate deploy && npm run start:worker"]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: 'postgresql://nexus:${POSTGRES_PASSWORD:-nexus}@db:5432/nexus?schema=public'
+      REDIS_URL: 'redis://redis:6379'
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    volumes:
+      - app_uploads:/app/uploads
+      - app_data:/app/data
+    restart: unless-stopped
+
 volumes:
   pg_data:
+  redis_data:
   app_uploads:
   app_data:

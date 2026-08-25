@@ -273,11 +273,13 @@ export class AIEngineService {
       
       // If AI detects critical risk, generate a high-severity alert
       if (aiResult.riskLevel === 'CRITICAL' || aiResult.anomaly.isAnomaly) {
+         const reason = aiResult.explanation[0]
+           ?? `${aiResult.riskLevel} risk classification${aiResult.anomaly.isAnomaly ? ' with a detected physiological anomaly' : ''} — review the athlete's biological passport.`;
          await db.alert.create({
            data: {
              athleteId,
              severity: 'CRITICAL',
-             message: `AI INTELLIGENCE ALERT: ${aiResult.explanation[0]}`,
+             message: `AI INTELLIGENCE ALERT: ${reason}`,
              isResolved: false
            }
          });

@@ -14,61 +14,63 @@ datasource db {
 // --- CORE IDENTITY & ACCESS ---
 
 model Organization {
-  id          String   @id @default(uuid())
-  name        String
-  slug        String   @unique
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  users       User[]
-  athletes    Athlete[]
-  roles       Role[]
+  users         User[]
+  athletes      Athlete[]
+  roles         Role[]
+  ingestionJobs IngestionJob[]
 }
 
 model User {
-  id             String        @id @default(uuid())
-  email          String        @unique
-  password       String
-  name           String
-  isActive       Boolean       @default(true)
+  id       String  @id @default(uuid())
+  email    String  @unique
+  password String
+  name     String
+  isActive Boolean @default(true)
 
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
 
-  roleId         String
-  role           Role          @relation(fields: [roleId], references: [id])
+  roleId String
+  role   Role   @relation(fields: [roleId], references: [id])
 
   notifications  Notification[]
   activityLogs   ActivityLog[]
   reportsCreated MedicalReport[] @relation("ReportCreator")
+  ingestionJobs  IngestionJob[]
 
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([organizationId])
   @@index([roleId])
 }
 
 model Role {
-  id             String       @id @default(uuid())
-  name           String
-  description    String?
+  id          String  @id @default(uuid())
+  name        String
+  description String?
 
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
 
-  permissions    Permission[]
-  users          User[]
+  permissions Permission[]
+  users       User[]
 
   @@unique([name, organizationId])
   @@index([organizationId])
 }
 
 model Permission {
-  id          String   @id @default(uuid())
-  action      String   // e.g., "REPORT_CREATE", "ATHLETE_VIEW"
-  resource    String   // e.g., "MEDICAL_REPORTS", "ATHLETES"
-  roles       Role[]
+  id       String @id @default(uuid())
+  action   String // e.g., "REPORT_CREATE", "ATHLETE_VIEW"
+  resource String // e.g., "MEDICAL_REPORTS", "ATHLETES"
+  roles    Role[]
 }
 
 // --- ATHLETE DOMAIN ---
@@ -81,30 +83,31 @@ enum AthleteStatus {
 }
 
 model Athlete {
-  id              String        @id @default(uuid())
-  externalId      String?       @unique
-  name            String
-  dateOfBirth     DateTime
-  gender          String
-  nationality     String
-  sport           String
-  status          AthleteStatus @default(ACTIVE)
+  id          String        @id @default(uuid())
+  externalId  String?       @unique
+  name        String
+  dateOfBirth DateTime
+  gender      String
+  nationality String
+  sport       String
+  status      AthleteStatus @default(ACTIVE)
 
-  organizationId  String
-  organization    Organization  @relation(fields: [organizationId], references: [id])
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
 
-  medicalProfile  AthleteMedicalProfile?
+  medicalProfile AthleteMedicalProfile?
 
-  reports         MedicalReport[]
-  riskAssessments RiskAssessment[]
+  reports            MedicalReport[]
+  riskAssessments    RiskAssessment[]
   biologicalPassport BiologicalPassport?
-  alerts          Alert[]
-  aiPredictions   AIPrediction[]
-  inspections     Inspection[]
+  alerts             Alert[]
+  aiPredictions      AIPrediction[]
+  inspections        Inspection[]
+  ingestionJobs      IngestionJob[]
 
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  deletedAt       DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   @@index([organizationId])
   @@index([organizationId, deletedAt])
@@ -112,29 +115,29 @@ model Athlete {
 }
 
 model Inspection {
-  id              String   @id @default(uuid())
-  title           String
-  description     String?
-  status          String   @default("OPEN") // OPEN, IN_PROGRESS, CLOSED, ESCALATED
-  priority        String   @default("MEDIUM") // LOW, MEDIUM, HIGH, CRITICAL
+  id          String  @id @default(uuid())
+  title       String
+  description String?
+  status      String  @default("OPEN") // OPEN, IN_PROGRESS, CLOSED, ESCALATED
+  priority    String  @default("MEDIUM") // LOW, MEDIUM, HIGH, CRITICAL
 
-  athleteId       String
-  athlete         Athlete  @relation(fields: [athleteId], references: [id])
+  athleteId String
+  athlete   Athlete @relation(fields: [athleteId], references: [id])
 
-  assignedTo      String?  // Analyst Name
-  findings        String?  // Rich text findings
+  assignedTo String? // Analyst Name
+  findings   String? // Rich text findings
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([athleteId])
   @@index([status])
 }
 
 model AthleteMedicalProfile {
-  id        String   @id @default(uuid())
-  athleteId String   @unique
-  athlete   Athlete  @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  id        String  @id @default(uuid())
+  athleteId String  @unique
+  athlete   Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
 
   bloodType String?
   allergies String?
@@ -161,36 +164,36 @@ enum ReportStatus {
 }
 
 model MedicalReport {
-  id             String       @id @default(uuid())
-  type           ReportType
-  status         ReportStatus @default(PENDING)
-  description    String?
+  id          String       @id @default(uuid())
+  type        ReportType
+  status      ReportStatus @default(PENDING)
+  description String?
 
-  athleteId      String
-  athlete        Athlete      @relation(fields: [athleteId], references: [id])
+  athleteId String
+  athlete   Athlete @relation(fields: [athleteId], references: [id])
 
-  creatorId      String
-  creator        User         @relation("ReportCreator", fields: [creatorId], references: [id])
+  creatorId String
+  creator   User   @relation("ReportCreator", fields: [creatorId], references: [id])
 
   // INGESTION ENHANCEMENTS
-  fileUrl           String?
-  fileName          String?
-  fileType          String?      // pdf, jpg, png, csv
+  fileUrl  String?
+  fileName String?
+  fileType String? // pdf, jpg, png, csv
 
-  ocrRawText        String?      // Full extracted text (encrypted at rest)
-  extractedJSON     String?      // Structured data before validation (encrypted at rest)
+  ocrRawText    String? // Full extracted text (encrypted at rest)
+  extractedJSON String? // Structured data before validation (encrypted at rest)
 
-  ocrConfidence     Float?       @default(0)
-  parsingConfidence Float?       @default(0)
-  extractionQuality String?      // EXCELLENT, GOOD, POOR
+  ocrConfidence     Float?  @default(0)
+  parsingConfidence Float?  @default(0)
+  extractionQuality String? // EXCELLENT, GOOD, POOR
 
-  validationStatus  String?      @default("PENDING") // VALID, INVALID, INCOMPLETE
-  validationNotes   String?
+  validationStatus String? @default("PENDING") // VALID, INVALID, INCOMPLETE
+  validationNotes  String?
 
-  testResults    TestResult[]
+  testResults TestResult[]
 
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([athleteId])
   @@index([creatorId])
@@ -199,26 +202,26 @@ model MedicalReport {
 }
 
 model TestResult {
-  id              String        @id @default(uuid())
-  reportId        String
-  report          MedicalReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  id       String        @id @default(uuid())
+  reportId String
+  report   MedicalReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
 
-  parameter       String
-  value           Float
-  unit            String
-  isAtypical      Boolean       @default(false)
-  deviation       Float?
+  parameter  String
+  value      Float
+  unit       String
+  isAtypical Boolean @default(false)
+  deviation  Float?
 
-  createdAt       DateTime      @default(now())
+  createdAt DateTime @default(now())
 
   @@index([reportId])
   @@index([parameter])
 }
 
 model BiologicalPassport {
-  id        String   @id @default(uuid())
-  athleteId String   @unique
-  athlete   Athlete  @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+  id        String  @id @default(uuid())
+  athleteId String  @unique
+  athlete   Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
 
   hematologicalMarkers String
   steroidalMarkers     String
@@ -228,32 +231,32 @@ model BiologicalPassport {
 // --- ANALYTICS & MONITORING ---
 
 model RiskAssessment {
-  id         String   @id @default(uuid())
-  athleteId  String
-  athlete    Athlete  @relation(fields: [athleteId], references: [id])
+  id        String  @id @default(uuid())
+  athleteId String
+  athlete   Athlete @relation(fields: [athleteId], references: [id])
 
-  score      Float
-  category   String
-  modelName  String   @default("V1_HEURISTIC")
-  findings   String
+  score     Float
+  category  String
+  modelName String @default("V1_HEURISTIC")
+  findings  String
 
-  createdAt  DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([athleteId])
   @@index([createdAt])
 }
 
 model Alert {
-  id         String   @id @default(uuid())
-  athleteId  String
-  athlete    Athlete  @relation(fields: [athleteId], references: [id])
+  id        String  @id @default(uuid())
+  athleteId String
+  athlete   Athlete @relation(fields: [athleteId], references: [id])
 
   severity   String
   message    String
-  isResolved Boolean  @default(false)
+  isResolved Boolean   @default(false)
   resolvedAt DateTime?
 
-  createdAt  DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([athleteId])
   @@index([isResolved])
@@ -262,14 +265,14 @@ model Alert {
 // --- OBSERVE & AUDIT ---
 
 model Notification {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
-  title     String
-  content   String
-  isRead    Boolean  @default(false)
-  type      String
+  title   String
+  content String
+  isRead  Boolean @default(false)
+  type    String
 
   createdAt DateTime @default(now())
 
@@ -277,9 +280,9 @@ model Notification {
 }
 
 model ActivityLog {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
   action    String
   details   String?
@@ -292,47 +295,103 @@ model ActivityLog {
 }
 
 model AuditLog {
-  id          String   @id @default(uuid())
-  tableName   String
-  recordId    String
-  operation   String
-  oldValue    String?
-  newValue    String?
-  changedBy   String
+  id        String  @id @default(uuid())
+  tableName String
+  recordId  String
+  operation String
+  oldValue  String?
+  newValue  String?
+  changedBy String
 
-  createdAt   DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([tableName, recordId])
   @@index([createdAt])
 }
 
 model AIPrediction {
-  id                String   @id @default(uuid())
-  athleteId         String
-  athlete           Athlete  @relation(fields: [athleteId], references: [id])
+  id        String  @id @default(uuid())
+  athleteId String
+  athlete   Athlete @relation(fields: [athleteId], references: [id])
 
-  riskLevel         String
-  riskProbability   String
+  riskLevel       String
+  riskProbability String
 
-  isAnomaly         Boolean
-  anomalyScore      Float
-  isAtypical        Boolean
+  isAnomaly    Boolean
+  anomalyScore Float
+  isAtypical   Boolean
 
   explanation       String
   featureImportance String
 
   // XAI Enhancements
-  confidenceScore   Float    @default(0)
-  reliabilityLabel  String   @default("UNRELIABLE") // HIGH, MODERATE, LOW
-  stabilityIndex    Float    @default(0)
-  reasoningJSON     String?  // Detailed medical reasoning chunks
-  longitudinalData  String?  // Trends and historical delta JSON
-  uncertaintyData   String?  // Uncertainty metrics
+  confidenceScore  Float   @default(0)
+  reliabilityLabel String  @default("UNRELIABLE") // HIGH, MODERATE, LOW
+  stabilityIndex   Float   @default(0)
+  reasoningJSON    String? // Detailed medical reasoning chunks
+  longitudinalData String? // Trends and historical delta JSON
+  uncertaintyData  String? // Uncertainty metrics
 
-  modelInfo         String
+  modelInfo String
 
-  createdAt         DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([athleteId])
   @@index([createdAt])
+}
+
+// --- ASYNCHRONOUS INGESTION (Phase 3) ---
+
+enum IngestionJobStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+  DEAD_LETTER
+}
+
+// Durable record of an ingestion job, independent of the BullMQ/Redis queue's
+// own (ephemeral, TTL'd) job state. The API reads job status from this table
+// so a status lookup never depends on Redis being reachable, and so job
+// history survives beyond the queue's retention window. Also carries the
+// file metadata described in Phase 2 (checksum, mime, size, uploader) so the
+// object-storage migration in that phase is additive, not a rework of this one.
+model IngestionJob {
+  id String @id @default(uuid())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  // Null until an athlete is resolved (auto-match jobs don't know the athlete
+  // until the worker parses the document and runs AthleteMatchService).
+  athleteId String?
+  athlete   Athlete? @relation(fields: [athleteId], references: [id])
+
+  // Set once the worker creates the MedicalReport row.
+  reportId String? @unique
+
+  uploaderId String
+  uploader   User   @relation(fields: [uploaderId], references: [id])
+
+  fileName  String
+  filePath  String
+  mimeType  String
+  sizeBytes Int
+  checksum  String // sha256 of the uploaded bytes — used for idempotent re-submit detection
+
+  status        IngestionJobStatus @default(QUEUED)
+  stage         String? // current pipeline stage, e.g. OCR_PARSING, VALIDATION, RISK_ANALYSIS
+  progress      Int                @default(0) // 0..100
+  attempts      Int                @default(0)
+  error         String?
+  resultSummary String? // JSON: { biomarkerCount, riskLevel, isAnomaly, ... } once COMPLETED
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+
+  @@index([organizationId])
+  @@index([organizationId, checksum])
+  @@index([status])
+  @@index([athleteId])
 }
