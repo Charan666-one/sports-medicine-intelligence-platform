@@ -1,0 +1,21 @@
+# These findings are in the npm CLI's own bundled dependency tree
+# (installed globally via `npm install -g npm@10` in the Dockerfile, to
+# replace the base image's stale npm — see Dockerfile comments), not in
+# anything under this project's package.json/node_modules that the running
+# server ever imports.
+#
+# npm is only ever invoked here as a build/boot-time CLI tool (`npm ci`,
+# `npm run build`, `npx prisma migrate deploy`, `npm run start`) — it never
+# runs as a network-facing process, and none of its own vendored packages
+# (brace-expansion, ip-address, picomatch, sigstore — used internally by
+# npm for install-time glob matching, registry auth, and provenance
+# verification) ever parse attacker-controlled input in this deployment.
+#
+# Re-evaluate whenever the Dockerfile's npm version is bumped: re-run the
+# container-scan job and drop any CVE below that Trivy no longer reports.
+CVE-2026-13149
+CVE-2026-14257
+CVE-2026-69152
+CVE-2026-69192
+CVE-2026-33671
+CVE-2026-48815

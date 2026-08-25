@@ -156,7 +156,10 @@ framed as a confirmed risk signal (`AIEngineService.processAthleteAIUpdate`).
   vulnerabilities), `gitleaks` (committed-secret scanning), and a Trivy scan
   of the built Docker image (CRITICAL/HIGH) all run on every push/PR and
   block merge on failure. Dependabot keeps npm/Docker/Actions dependencies
-  patched weekly.
+  patched weekly. `.trivyignore` suppresses a handful of CVEs confined to
+  npm's own bundled CLI dependencies (not this project's code — see the
+  file's comments); re-check it after bumping the npm version in the
+  Dockerfile, since the exact CVE IDs shift between npm patch releases.
 - **Known gap**: multi-factor authentication is not yet implemented — single
   factor (password + JWT) only. Tracked as a blocker in
   `ENGINEERING_READINESS.md`.
