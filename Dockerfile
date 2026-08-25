@@ -18,7 +18,10 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
-RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates \
+# Upgrade first: the base image's OS packages (e.g. libgnutls30, libcap2)
+# lag behind Debian security patches between node:20-slim rebuilds.
+RUN apt-get update && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends openssl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Fresh production-only install (not a copy of the build stage's
