@@ -260,6 +260,15 @@ no external network calls.
   stops routing traffic to an instance that can't actually serve it. Render
   is configured to use the readiness endpoint (`render.yaml`); Docker
   Compose's `app` healthcheck uses it too.
+- **Metrics** (Phase 12, `src/utils/metrics.ts`): `GET /api/metrics` exposes
+  Prometheus text-format metrics — default Node process metrics (CPU,
+  memory, event loop), `http_request_duration_seconds` (a histogram
+  labeled by method/route-template/status, so cardinality stays bounded
+  regardless of data volume), and `ingestion_jobs_total` (labeled by
+  terminal status: `completed` / `retry` / `dead_letter`) so the async
+  pipeline's health is visible without reading logs. Open by default
+  (`METRICS_TOKEN` optionally gates it — see `.env.example`); no bundled
+  dashboard or alerting.
 
 ## Docker
 

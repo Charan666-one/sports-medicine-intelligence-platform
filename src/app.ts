@@ -11,6 +11,7 @@ import { NotFoundError } from './errors/AppError.js';
 import apiV1Routes from './routes/index.js';
 import { db } from './services/db.js';
 import IORedis from 'ioredis';
+import { register, httpRequestDuration } from './utils/metrics.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -49,6 +50,20 @@ export async function createApp() {
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true, limit: '1mb' }));
   app.use(httpLogger);
+
+  // Records every response's duration/status, labeled by route TEMPLATE
+  // (e.g. `/athletes/:id`, available on `req.route` only after Express has
+  // matched a route — read on `res.on('finish')`, not before) so metric
+  // cardinality stays bounded regardless of how many athletes/reports exist.
+  app.use((req, res, next) => {
+    const start = process.hrtime.bigint();
+    res.on('finish', () => {
+      const route = req.route?.path ? `${req.baseUrl}${req.route.path}` : `${req.baseUrl || req.path}/unmatched`;
+      const seconds = Number(process.hrtime.bigint() - start) / 1e9;
+      httpRequestDuration.observe({ method: req.method, route, status_code: String(res.statusCode) }, seconds);
+    });
+    next();
+  });
 
   // Liveness (public, unauthenticated): process is up and serving requests.
   // Deliberately checks nothing external — must stay fast and always-200 as
@@ -112,6 +127,19 @@ export async function createApp() {
 
     const allOk = Object.values(checks).every((v) => v === 'ok');
     res.status(allOk ? 200 : 503).json({ status: allOk ? 'ready' : 'not_ready', checks, timestamp: new Date().toISOString() });
+  });
+
+  // Prometheus-format metrics (public unless METRICS_TOKEN is set — see
+  // config/index.ts). Request-rate/latency/error-rate and default Node
+  // process metrics; ingestion_jobs_total tracks async pipeline health.
+  // Not rate-limited, same as the health endpoints above — a scraper
+  // polling every few seconds should never be throttled.
+  app.get('/api/metrics', async (req, res) => {
+    if (config.METRICS_TOKEN && req.headers.authorization !== `Bearer ${config.METRICS_TOKEN}`) {
+      return res.status(401).json({ status: 'error', message: 'Unauthorized' });
+    }
+    res.set('Content-Type', register.contentType);
+    res.send(await register.metrics());
   });
 
   // Rate limit all API traffic, then mount the versioned API.

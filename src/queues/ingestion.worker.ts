@@ -5,6 +5,7 @@ import { db } from '../services/db.js';
 import { runIngestionPipeline } from '../services/ingestionPipeline.service.js';
 import { SocketService } from '../services/socket.service.js';
 import { logger } from '../utils/logger.js';
+import { ingestionJobsTotal } from '../utils/metrics.js';
 
 /** How many ingestion jobs this worker processes concurrently. */
 const CONCURRENCY = Number(process.env.INGESTION_WORKER_CONCURRENCY ?? 2);
@@ -53,6 +54,7 @@ export function createIngestionWorker(): Worker<IngestionJobPayload> {
         // listening on this specific job (same payload shape the old
         // synchronous endpoint used to return directly).
         SocketService.emit('ingestion:completed', { ingestionJobId, ...outcome });
+        ingestionJobsTotal.inc({ status: 'completed' });
 
         logger.info(`✔ Ingestion job ${ingestionJobId} completed → report ${outcome.reportId}`);
         return outcome;
@@ -71,6 +73,8 @@ export function createIngestionWorker(): Worker<IngestionJobPayload> {
             error: err.message?.slice(0, 2000) ?? 'Unknown error',
           },
         });
+
+        ingestionJobsTotal.inc({ status: finalAttempt ? 'dead_letter' : 'retry' });
 
         if (finalAttempt) {
           SocketService.emit('ingestion:failed', { ingestionJobId, error: err.message });

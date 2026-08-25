@@ -54,6 +54,13 @@ const envSchema = z.object({
   // Path-style addressing (bucket.example.com/key vs example.com/bucket/key)
   // — required by most self-hosted S3-compatible servers.
   STORAGE_S3_FORCE_PATH_STYLE: z.coerce.boolean().default(false),
+
+  // Optional bearer token gating GET /api/metrics. Metrics reveal internal
+  // topology (route templates, request volume) but no tenant data — low
+  // sensitivity, but not zero, so this is available for deployments that
+  // can't restrict the path at the ingress/network layer instead. Unset =
+  // open, matching the existing /api/health(/ready) precedent.
+  METRICS_TOKEN: z.string().optional(),
 })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production') {

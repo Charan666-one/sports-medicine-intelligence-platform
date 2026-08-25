@@ -60,8 +60,10 @@ export const httpLogger = pinoHttp({
     res.setHeader('X-Request-Id', id);
     return id;
   },
-  // Quieten health checks; keep everything else.
-  autoLogging: { ignore: (req) => req.url === '/api/health' || req.url === '/api/health/ready' },
+  // Quieten health checks and metrics scraping; keep everything else.
+  autoLogging: {
+    ignore: (req) => req.url === '/api/health' || req.url === '/api/health/ready' || req.url === '/api/metrics',
+  },
   customLogLevel: (_req, res, err) => {
     if (err || res.statusCode >= 500) return 'error';
     if (res.statusCode >= 400) return 'warn';

@@ -168,3 +168,10 @@ need it for real.
 - **Health checks**: point your platform's health check at
   `GET /api/health/ready` (checks Postgres + Redis connectivity), not
   `GET /api/health` (pure liveness, always 200) — see the README.
+- **Metrics**: `GET /api/metrics` exposes Prometheus text-format metrics
+  (HTTP request rate/latency/status by route template, default Node
+  process metrics, and `ingestion_jobs_total` for async pipeline health).
+  Open by default like the health endpoints; set `METRICS_TOKEN` to gate it
+  with a bearer token if you can't restrict the path at the ingress layer.
+  Point your Prometheus-compatible collector at it — there is no bundled
+  dashboard or alerting (tracked in `ENGINEERING_READINESS.md`).
