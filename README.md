@@ -152,6 +152,14 @@ framed as a confirmed risk signal (`AIEngineService.processAthleteAIUpdate`).
   request rate limiting, body-size limits, and PII-safe logging (no query logging).
 - **Audit trail**: logins, registrations, ingestions, and alert changes are
   recorded (who / what / when / IP) in the ActivityLog and AuditLog tables.
+- **CI security gates**: `npm audit --audit-level=high` (dependency
+  vulnerabilities), `gitleaks` (committed-secret scanning), and a Trivy scan
+  of the built Docker image (CRITICAL/HIGH) all run on every push/PR and
+  block merge on failure. Dependabot keeps npm/Docker/Actions dependencies
+  patched weekly.
+- **Known gap**: multi-factor authentication is not yet implemented — single
+  factor (password + JWT) only. Tracked as a blocker in
+  `ENGINEERING_READINESS.md`.
 
 ### Optional: enable Gemini LLM enhancement
 

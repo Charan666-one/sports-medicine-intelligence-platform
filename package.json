@@ -63,7 +63,6 @@
     "react-dropzone": "^15.0.0",
     "react-router-dom": "^7.15.0",
     "recharts": "^3.8.1",
-    "sharp": "^0.34.5",
     "simple-statistics": "^7.8.9",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
