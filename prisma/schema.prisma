@@ -338,10 +338,19 @@ model AIPrediction {
 
   modelInfo String
 
+  // Versioned analysis / reproducibility (Phase 8). AIPrediction rows are
+  // append-only (never updated in place), so history is already preserved;
+  // these fields let a specific prediction be traced back to exactly which
+  // engine/rules logic and which input values produced it.
+  engineVersion String @default("unversioned") // deterministic risk/anomaly engine code version
+  rulesVersion  String @default("unversioned") // physiological threshold/rules version
+  inputHash     String @default("") // SHA-256 of the feature vector this prediction was computed from
+
   createdAt DateTime @default(now())
 
   @@index([athleteId])
   @@index([createdAt])
+  @@index([inputHash])
 }
 
 // --- ASYNCHRONOUS INGESTION (Phase 3) ---

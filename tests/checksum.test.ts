@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { sha256File } from '../src/utils/checksum.js';
+import { sha256File, sha256Json } from '../src/utils/checksum.js';
 
 describe('sha256File', () => {
   const tmpFiles: string[] = [];
@@ -34,5 +34,26 @@ describe('sha256File', () => {
     const a = await writeTmp('x');
     const digest = await sha256File(a);
     expect(digest).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe('sha256Json (analysis input hashing — Phase 8 reproducibility)', () => {
+  it('is stable regardless of object key insertion order', () => {
+    const a = { hemoglobin: 15, epo: 5, hematocrit: 45 };
+    const b = { hematocrit: 45, hemoglobin: 15, epo: 5 };
+    expect(sha256Json(a)).toBe(sha256Json(b));
+  });
+
+  it('produces different digests for different values', () => {
+    expect(sha256Json({ hemoglobin: 15 })).not.toBe(sha256Json({ hemoglobin: 16 }));
+  });
+
+  it('is stable across repeated calls with the same input (reproducibility)', () => {
+    const input = { hemoglobin: 19.3, epo: 23.1, testosteroneRatio: 7.9 };
+    expect(sha256Json(input)).toBe(sha256Json({ ...input }));
+  });
+
+  it('returns a 64-character lowercase hex digest', () => {
+    expect(sha256Json({ a: 1 })).toMatch(/^[0-9a-f]{64}$/);
   });
 });

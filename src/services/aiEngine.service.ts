@@ -6,6 +6,7 @@ import { ExplainabilityService, XAIReport } from './explainability.service.js';
 import { SocketService } from './socket.service.js';
 import { isGeminiEnabled } from '../config/index.js';
 import { evaluateAnomalySignals } from './anomalyScoring.js';
+import { sha256Json } from '../utils/checksum.js';
 
 export interface AIPredictionResult {
   riskLevel: 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL';
@@ -24,10 +25,24 @@ export interface AIPredictionResult {
   importance: Record<string, number>;
   xai: XAIReport;
   aiEnhancedSummary?: string;
+  /** Reproducibility (Phase 8): which stored prediction row, engine/rules
+   *  version, and input this result came from — so it can be traced and
+   *  independently re-derived, never a silent/unexplained number. */
+  provenance: {
+    predictionId: string;
+    engineVersion: string;
+    rulesVersion: string;
+    inputHash: string;
+  };
 }
 
 export class AIEngineService {
   private static FEATURES = ['hemoglobin', 'hematocrit', 'testosteroneRatio', 'reticulocyte', 'epo', 'stabilityIndex'];
+
+  /** Deterministic risk/anomaly engine code version (Phase 8 reproducibility). Bump on logic changes. */
+  private static ENGINE_VERSION = 'nexus-ai-engine@1.0.0';
+  /** Physiological threshold/rules version (POP_LIMITS, calculateRiskClass bounds). Bump on threshold changes. */
+  private static RULES_VERSION = 'physio-thresholds@1.0.0';
 
   /**
    * Generates AI-driven risk prediction and anomaly detection with XAI
@@ -80,6 +95,12 @@ export class AIEngineService {
       }
     }
 
+    // Reproducibility (Phase 8): hash the exact feature vector this
+    // prediction is derived from, so a given row can be independently
+    // re-checked — same inputHash + same engine/rules version must
+    // reproduce the same classification.
+    const inputHash = sha256Json(latestFeatures);
+
     // Persist to DB with XAI metrics
     const prediction = await db.aIPrediction.create({
       data: {
@@ -91,7 +112,7 @@ export class AIEngineService {
         isAtypical: isAnomaly,
         explanation: JSON.stringify(xaiReport.reasoning.findings),
         featureImportance: JSON.stringify(Object.fromEntries(xaiReport.impacts.map(i => [i.name, i.impactWeight]))),
-        
+
         // XAI Fields
         confidenceScore: xaiReport.confidence.score,
         reliabilityLabel: xaiReport.confidence.label,
@@ -105,8 +126,11 @@ export class AIEngineService {
         uncertaintyData: JSON.stringify({
           uncertainty: xaiReport.confidence.uncertainty
         }),
-        
-        modelInfo: "AI_PASS_V2_XAI_OPTIMIZED_PHASE6"
+
+        modelInfo: "AI_PASS_V2_XAI_OPTIMIZED_PHASE6",
+        engineVersion: this.ENGINE_VERSION,
+        rulesVersion: this.RULES_VERSION,
+        inputHash,
       }
     });
 
@@ -121,7 +145,13 @@ export class AIEngineService {
       explanation: xaiReport.reasoning.findings,
       importance: Object.fromEntries(xaiReport.impacts.map(i => [i.name, i.impactWeight])),
       xai: xaiReport,
-      aiEnhancedSummary: xaiReport.aiEnhancedSummary
+      aiEnhancedSummary: xaiReport.aiEnhancedSummary,
+      provenance: {
+        predictionId: prediction.id,
+        engineVersion: this.ENGINE_VERSION,
+        rulesVersion: this.RULES_VERSION,
+        inputHash,
+      }
     };
 
     // Phase 7: Real-time notification

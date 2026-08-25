@@ -94,6 +94,22 @@ Run the worker with `npm run worker` (dev, hot-reload) or
 `npm run start:worker` (production). It must be running for uploads to
 actually process — the API only enqueues them.
 
+## Versioned analysis & reproducibility
+
+`AIPrediction` rows are append-only (a new analysis never overwrites or
+updates a prior one — history is preserved by construction) and each row
+records the exact provenance of the classification that produced it:
+
+- `engineVersion` — the deterministic risk/anomaly engine code version
+- `rulesVersion` — the physiological threshold/rules version (`POP_LIMITS`,
+  risk-class bounds in `AIEngineService`)
+- `inputHash` — SHA-256 of the exact feature vector the prediction was
+  computed from (`sha256Json`, `src/utils/checksum.ts`)
+
+Given the same `inputHash` and the same `engineVersion`/`rulesVersion`, a
+prediction is independently reproducible — bump the version constants in
+`AIEngineService` whenever the classification logic or thresholds change.
+
 ## Data quality vs. risk signal
 
 A flagged biomarker reading can mean very different things, and conflating
