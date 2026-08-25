@@ -265,26 +265,42 @@ export class AIEngineService {
   }
 
   /**
-   * Process and update athlete with AI insights
+   * Process and update athlete with AI insights.
+   *
+   * @param dataErrorParameters Biomarker names this upload's own extraction
+   *   validation already flagged as DATA_ERROR (likely OCR/parsing mistake
+   *   — see src/types/dataQuality.ts), e.g. from a report just ingested in
+   *   the same pipeline run. If the single strongest driver of a
+   *   CRITICAL/anomalous finding is one of these, it is far more likely a
+   *   mis-scanned document than a real doping-risk signal, so we raise a
+   *   lower-severity data-quality review alert instead of a CRITICAL one —
+   *   never silently drop the finding, but never let a probable data error
+   *   masquerade as a risk signal either.
    */
-  static async processAthleteAIUpdate(athleteId: string) {
+  static async processAthleteAIUpdate(athleteId: string, dataErrorParameters: string[] = []) {
     try {
       const aiResult = await this.analyzeAthleteAI(athleteId);
-      
-      // If AI detects critical risk, generate a high-severity alert
+
       if (aiResult.riskLevel === 'CRITICAL' || aiResult.anomaly.isAnomaly) {
-         const reason = aiResult.explanation[0]
-           ?? `${aiResult.riskLevel} risk classification${aiResult.anomaly.isAnomaly ? ' with a detected physiological anomaly' : ''} — review the athlete's biological passport.`;
-         await db.alert.create({
-           data: {
-             athleteId,
-             severity: 'CRITICAL',
-             message: `AI INTELLIGENCE ALERT: ${reason}`,
-             isResolved: false
-           }
-         });
+        const reason = aiResult.explanation[0]
+          ?? `${aiResult.riskLevel} risk classification${aiResult.anomaly.isAnomaly ? ' with a detected physiological anomaly' : ''} — review the athlete's biological passport.`;
+
+        const dataErrorSet = new Set(dataErrorParameters.map((p) => p.toLowerCase()));
+        const topDriver = Object.entries(aiResult.importance).sort((a, b) => b[1] - a[1])[0]?.[0];
+        const likelyDataError = !!topDriver && dataErrorSet.has(topDriver.toLowerCase());
+
+        await db.alert.create({
+          data: {
+            athleteId,
+            severity: likelyDataError ? 'MODERATE' : 'CRITICAL',
+            message: likelyDataError
+              ? `DATA QUALITY REVIEW: The strongest driver of this ${aiResult.riskLevel.toLowerCase()} finding (${topDriver}) was independently flagged as a likely extraction/data error in the source document — verify against the original report before treating this as a risk signal.`
+              : `AI INTELLIGENCE ALERT: ${reason}`,
+            isResolved: false,
+          },
+        });
       }
-      
+
       return aiResult;
     } catch (error) {
       console.error("[AIEngine] Update failed:", error);

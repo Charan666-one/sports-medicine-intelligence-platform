@@ -89,7 +89,7 @@ export async function runIngestionPipeline(
 
   // 3. Validate extracted biomarkers against physiological ranges.
   SocketService.emitPipeline(athleteId, 'VALIDATION', 'PROCESSING');
-  const validation = ReportValidationService.validate(parseResult.biomarkers);
+  const validation = ReportValidationService.validate(parseResult.biomarkers, parseResult.confidence);
   SocketService.emitPipeline(athleteId, 'VALIDATION', 'COMPLETED', { valid: validation.isValid });
   await onProgress(50, 'VALIDATION');
 
@@ -109,6 +109,7 @@ export async function runIngestionPipeline(
       parsingConfidence: validation.qualityScore,
       validationStatus: validation.status,
       validationNotes: validation.notes.join('\n'),
+      dataQualityFindings: JSON.stringify(validation.findings),
       extractionQuality:
         validation.qualityScore > 0.8 ? 'EXCELLENT' : validation.qualityScore > 0.5 ? 'GOOD' : 'POOR',
     },
@@ -135,7 +136,10 @@ export async function runIngestionPipeline(
     SocketService.emitPipeline(athleteId, 'AI_SCAN', 'QUEUED');
     await onProgress(80, 'AI_SCAN');
     try {
-      aiResult = await AIEngineService.processAthleteAIUpdate(athleteId);
+      const dataErrorParameters = validation.findings
+        .filter((f) => f.category === 'DATA_ERROR')
+        .map((f) => f.parameter);
+      aiResult = await AIEngineService.processAthleteAIUpdate(athleteId, dataErrorParameters);
       SocketService.emitPipeline(athleteId, 'AI_SCAN', 'COMPLETED');
     } catch (aiErr: any) {
       logger.warn('AI Engine analysis skipped: ' + aiErr.message);

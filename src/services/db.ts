@@ -18,7 +18,7 @@ const verbose = process.env.PRISMA_DEBUG === 'true';
  * TestResult numeric values stay in the clear so the risk engine can query them.
  */
 const ENCRYPTED_FIELDS: Record<string, string[]> = {
-  MedicalReport: ['ocrRawText', 'extractedJSON', 'validationNotes'],
+  MedicalReport: ['ocrRawText', 'extractedJSON', 'validationNotes', 'dataQualityFindings'],
   AthleteMedicalProfile: ['allergies', 'history'],
   BiologicalPassport: ['hematologicalMarkers', 'steroidalMarkers'],
 };

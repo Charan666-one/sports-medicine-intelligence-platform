@@ -217,6 +217,50 @@ export default function MedicalReportIntelligence({ athleteId }: MedicalReportIn
                  </div>
               </div>
 
+              {/* Data Quality Findings (Phase 4) */}
+              {(() => {
+                let findings: { category: string; parameter: string; message: string }[] = [];
+                try {
+                  findings = selectedReport.dataQualityFindings ? JSON.parse(selectedReport.dataQualityFindings) : [];
+                } catch {
+                  findings = [];
+                }
+                if (findings.length === 0) return null;
+                const styleFor = (category: string) =>
+                  category === 'DATA_ERROR'
+                    ? { badge: 'bg-amber-50 text-amber-700 ring-amber-200', label: 'Verify source document' }
+                    : category === 'RISK_SIGNAL'
+                    ? { badge: 'bg-rose-50 text-rose-700 ring-rose-200', label: 'Analyst review' }
+                    : { badge: 'bg-sky-50 text-sky-700 ring-sky-200', label: 'Monitor' };
+                return (
+                  <div className="bg-white p-8 rounded-4xl border border-slate-200 shadow-sm">
+                    <h3 className="font-bold text-slate-900 mb-2 flex items-center gap-2 underline decoration-indigo-500 underline-offset-8">
+                      <ShieldCheck className="w-5 h-5 text-indigo-600" /> DATA QUALITY FINDINGS
+                    </h3>
+                    <p className="text-xs text-slate-400 mb-6">
+                      Extraction/validation findings, categorized so a likely scan/OCR mistake is never confused with a real physiological signal.
+                    </p>
+                    <div className="space-y-3">
+                      {findings.map((f, idx) => {
+                        const s = styleFor(f.category);
+                        return (
+                          <div key={idx} className="flex items-start gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                            <span className={`shrink-0 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ring-1 ${s.badge}`}>
+                              {f.category.replace('_', ' ')}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-slate-900">{f.parameter}</p>
+                              <p className="text-xs text-slate-500 mt-0.5">{f.message}</p>
+                              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">{s.label}</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                  {/* Intelligence summary */}
                   <div className="bg-white p-8 rounded-4xl border border-slate-200 shadow-sm flex flex-col">

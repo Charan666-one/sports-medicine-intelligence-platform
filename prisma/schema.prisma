@@ -189,6 +189,10 @@ model MedicalReport {
 
   validationStatus String? @default("PENDING") // VALID, INVALID, INCOMPLETE
   validationNotes  String?
+  // Categorized data-quality findings (Phase 4) — JSON array of
+  // { category: DATA_ERROR | PHYSIOLOGICAL_ANOMALY | RISK_SIGNAL, parameter, message }.
+  // See src/types/dataQuality.ts.
+  dataQualityFindings String?
 
   testResults TestResult[]
 

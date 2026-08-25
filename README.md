@@ -94,6 +94,28 @@ Run the worker with `npm run worker` (dev, hot-reload) or
 `npm run start:worker` (production). It must be running for uploads to
 actually process — the API only enqueues them.
 
+## Data quality vs. risk signal
+
+A flagged biomarker reading can mean very different things, and conflating
+them is itself a risk — a mis-scanned document should never read as a
+doping alert. Every ingestion categorizes findings (`src/types/dataQuality.ts`):
+
+- **DATA_ERROR** — the value isn't physiologically possible for a living
+  human, or extraction confidence was too low to trust it. Most likely an
+  OCR/parsing mistake; needs re-verification against the source document.
+- **PHYSIOLOGICAL_ANOMALY** — plausible and real, but statistically atypical
+  for this athlete, with no independent population-level red flag.
+- **RISK_SIGNAL** — independently crosses a population-level threshold
+  associated with doping risk, regardless of the athlete's own history.
+
+Findings are stored per-report (`MedicalReport.dataQualityFindings`) and
+shown on the report detail view. Critically, if the strongest driver of a
+CRITICAL/anomalous AI finding is a biomarker that was independently flagged
+as a likely data error from the same upload, the system raises a
+lower-severity **"DATA QUALITY REVIEW"** alert instead of a CRITICAL
+**"AI INTELLIGENCE ALERT"** — a probable extraction mistake never gets
+framed as a confirmed risk signal (`AIEngineService.processAthleteAIUpdate`).
+
 ### Security & data privacy
 
 - **Auth on every API route** (JWT); realtime socket channel is authenticated too.
