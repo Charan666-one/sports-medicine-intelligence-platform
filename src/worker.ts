@@ -2,6 +2,8 @@ import { createIngestionWorker } from './queues/ingestion.worker.js';
 import { SocketService } from './services/socket.service.js';
 import { db } from './services/db.js';
 import { logger } from './utils/logger.js';
+import { createMetricsServer } from './utils/metricsServer.js';
+import { config } from './config/index.js';
 
 /**
  * Ingestion worker process entrypoint.
@@ -22,12 +24,22 @@ async function main() {
   const worker = createIngestionWorker();
   logger.info('✔ Ingestion worker ready and listening for jobs.');
 
+  // ingestion_jobs_total is only ever incremented here, in this process —
+  // it would never appear on the API's /api/metrics otherwise (separate OS
+  // processes don't share prom-client's in-memory registry). A real
+  // deployment scrapes this alongside the API's endpoint.
+  const metricsServer = createMetricsServer();
+  metricsServer.listen(config.WORKER_METRICS_PORT, () => {
+    logger.info(`✔ Worker metrics listening on :${config.WORKER_METRICS_PORT}/metrics`);
+  });
+
   const shutdown = async (signal: string) => {
     logger.info(`Worker received ${signal}. Shutting down gracefully...`);
     try {
       await worker.close();
       await SocketService.closeBridge();
       await db.$disconnect();
+      metricsServer.close();
     } catch (err) {
       logger.error('Error during worker shutdown', err);
     }

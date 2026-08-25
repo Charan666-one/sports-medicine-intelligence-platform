@@ -87,6 +87,11 @@ services:
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    ports:
+      # The worker's own metrics server — ingestion_jobs_total is only ever
+      # incremented in this process, so it needs its own scrape target
+      # separate from the app service's /api/metrics.
+      - '9091:9091'
     volumes:
       - app_uploads:/app/uploads
       - app_data:/app/data

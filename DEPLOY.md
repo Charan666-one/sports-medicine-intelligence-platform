@@ -87,8 +87,13 @@ docker run -d --name nexus-worker \
   -e JWT_SECRET="$(openssl rand -base64 48)" \
   -e ENCRYPTION_KEY="$(openssl rand -hex 32)" \
   -v nexus_uploads:/app/uploads \
+  -p 9091:9091 \
   nexus sh -c "npx prisma migrate deploy && npm run start:worker"
 ```
+
+The `-p 9091:9091` exposes the worker's own metrics server — see the
+Metrics note under Production notes below for why the worker needs a
+separate scrape target from the API's `/api/metrics`.
 
 Or use `docker compose up --build`, which wires all four services (`db`,
 `redis`, `app`, `worker`) with a shared uploads volume — see
@@ -168,10 +173,14 @@ need it for real.
 - **Health checks**: point your platform's health check at
   `GET /api/health/ready` (checks Postgres + Redis connectivity), not
   `GET /api/health` (pure liveness, always 200) — see the README.
-- **Metrics**: `GET /api/metrics` exposes Prometheus text-format metrics
-  (HTTP request rate/latency/status by route template, default Node
-  process metrics, and `ingestion_jobs_total` for async pipeline health).
-  Open by default like the health endpoints; set `METRICS_TOKEN` to gate it
-  with a bearer token if you can't restrict the path at the ingress layer.
-  Point your Prometheus-compatible collector at it — there is no bundled
-  dashboard or alerting (tracked in `ENGINEERING_READINESS.md`).
+- **Metrics**: `GET /api/metrics` (API process) exposes Prometheus text-
+  format metrics — HTTP request rate/latency/status by route template and
+  default Node process metrics. Open by default like the health endpoints;
+  set `METRICS_TOKEN` to gate it with a bearer token if you can't restrict
+  the path at the ingress layer. **Also scrape the worker**: since it's a
+  separate process, `ingestion_jobs_total` (async pipeline health) only
+  ever gets incremented there and is exposed on its own server at
+  `GET :$WORKER_METRICS_PORT/metrics` (default port `9091`, no path
+  prefix). A Prometheus config for this app needs both targets, not just
+  the API's. No bundled dashboard or alerting (tracked in
+  `ENGINEERING_READINESS.md`).

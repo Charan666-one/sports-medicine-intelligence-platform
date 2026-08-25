@@ -61,6 +61,14 @@ const envSchema = z.object({
   // can't restrict the path at the ingress/network layer instead. Unset =
   // open, matching the existing /api/health(/ready) precedent.
   METRICS_TOKEN: z.string().optional(),
+
+  // The worker is a SEPARATE OS process from the API (see src/worker.ts) —
+  // metrics recorded there (ingestion_jobs_total) live in that process's own
+  // memory and are invisible on the API's /api/metrics. The worker exposes
+  // its own tiny metrics HTTP server on this port; a real deployment scrapes
+  // both targets. This is the standard pattern for multi-process Node apps
+  // with prom-client, not a workaround.
+  WORKER_METRICS_PORT: z.coerce.number().default(9091),
 })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production') {
