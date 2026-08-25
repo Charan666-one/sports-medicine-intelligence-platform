@@ -23,10 +23,12 @@ ENV PORT=3000
 # npm CLI node:20-slim bundles vendors its own dependency tree (tar, glob,
 # minimatch, brace-expansion, ...) that similarly lags and shows up in image
 # scans even though nothing in this app invokes npm on untrusted input.
+# Pinned to the npm 10.x line (not `npm@latest`, which now requires Node
+# 22+) since this image runs on Node 20.
 RUN apt-get update && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends openssl ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
-    && npm install -g npm@latest
+    && npm install -g npm@10
 
 # Fresh production-only install (not a copy of the build stage's
 # node_modules) so build-only tooling (vite, esbuild, eslint, vitest, ...)

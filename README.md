@@ -197,6 +197,11 @@ no external network calls.
 - **TypeScript** runs in `strict` mode. `tsconfig.json` covers the frontend + shared code; `tsconfig.server.json` type-checks the backend without DOM libs.
 - **ESLint + Prettier** are configured (`eslint.config.js`, `.prettierrc.json`).
 - **Vitest** unit tests live in `tests/` (crypto, biomarker normalization/extraction, validation).
+- **Integration tests** (`tests/*.integration.test.ts`) exercise the real
+  Express app + a real Postgres database via `supertest` — no mocks.
+  `authorization.integration.test.ts` covers the authorization matrix:
+  unauthenticated → 401, cross-tenant read → 404 (not leaked), tenant-list
+  scoping, non-admin role on an admin-only mutation → 403, admin → 200/201.
 - **CI**: `.github/workflows/ci.yml` runs typecheck → lint → test → build on every push/PR.
 - **Logging** uses `pino` (pretty in dev, JSON in prod) with secret/PII redaction.
 - **Request IDs** (Phase 10 API quality): every request gets an ID — reused
