@@ -139,4 +139,63 @@ describe('Authorization matrix', () => {
       .send({ name: 'Admin Created Athlete', dateOfBirth: '2000-01-01', gender: 'Female', nationality: 'USA', sport: 'Swimming' });
     expect(res.status).toBe(201);
   });
+
+  describe('Alert lifecycle', () => {
+    // No API path creates an Alert directly (that's a side effect of the AI
+    // engine flagging a CRITICAL finding) — inserted directly, same pattern
+    // as the DOCTOR-role fixture above.
+    let orgAAlertId: string;
+
+    beforeAll(async () => {
+      const alert = await db.alert.create({
+        data: { athleteId: orgAAthleteId, severity: 'HIGH', message: 'Test alert for authorization coverage' },
+      });
+      orgAAlertId = alert.id;
+    });
+
+    it("blocks a different org's admin from resolving another org's alert (404, not leaked)", async () => {
+      const res = await request(app)
+        .patch(`/api/v1/alerts/${orgAAlertId}/resolve`)
+        .set('Authorization', `Bearer ${orgBAdminToken}`);
+      expect(res.status).toBe(404);
+
+      // Confirm it genuinely wasn't touched, not just that the response hid it.
+      const stillUnresolved = await db.alert.findUnique({ where: { id: orgAAlertId } });
+      expect(stillUnresolved?.isResolved).toBe(false);
+    });
+
+    it("blocks a different org's admin from escalating another org's alert (404, not leaked)", async () => {
+      const res = await request(app)
+        .patch(`/api/v1/alerts/${orgAAlertId}/escalate`)
+        .set('Authorization', `Bearer ${orgBAdminToken}`);
+      expect(res.status).toBe(404);
+
+      const stillOriginalSeverity = await db.alert.findUnique({ where: { id: orgAAlertId } });
+      expect(stillOriginalSeverity?.severity).toBe('HIGH');
+    });
+
+    it("excludes another org's alerts from the list endpoint (tenant isolation)", async () => {
+      const res = await request(app).get('/api/v1/alerts').set('Authorization', `Bearer ${orgBAdminToken}`);
+      expect(res.status).toBe(200);
+      const ids = (res.body.data.alerts ?? []).map((a: { id: string }) => a.id);
+      expect(ids).not.toContain(orgAAlertId);
+    });
+
+    it("lets the alert's own org escalate it, persisting the severity change", async () => {
+      const res = await request(app)
+        .patch(`/api/v1/alerts/${orgAAlertId}/escalate`)
+        .set('Authorization', `Bearer ${orgAAdminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.data.alert.severity).toBe('CRITICAL');
+    });
+
+    it("lets the alert's own org resolve it, persisting isResolved + resolvedAt", async () => {
+      const res = await request(app)
+        .patch(`/api/v1/alerts/${orgAAlertId}/resolve`)
+        .set('Authorization', `Bearer ${orgAAdminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.data.alert.isResolved).toBe(true);
+      expect(res.body.data.alert.resolvedAt).toBeTruthy();
+    });
+  });
 });
