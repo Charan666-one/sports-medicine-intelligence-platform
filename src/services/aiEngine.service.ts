@@ -5,7 +5,7 @@ import * as ss from 'simple-statistics';
 import { ExplainabilityService, XAIReport } from './explainability.service.js';
 import { SocketService } from './socket.service.js';
 import { isGeminiEnabled } from '../config/index.js';
-import { evaluateAnomalySignals } from './anomalyScoring.js';
+import { evaluateAnomalySignals, computeStabilityIndex } from './anomalyScoring.js';
 import { calculateRiskClass } from './riskClassification.js';
 import { sha256Json } from '../utils/checksum.js';
 
@@ -41,7 +41,7 @@ export class AIEngineService {
   private static FEATURES = ['hemoglobin', 'hematocrit', 'testosteroneRatio', 'reticulocyte', 'epo', 'stabilityIndex'];
 
   /** Deterministic risk/anomaly engine code version (Phase 8 reproducibility). Bump on logic changes. */
-  private static ENGINE_VERSION = 'nexus-ai-engine@1.0.0';
+  private static ENGINE_VERSION = 'nexus-ai-engine@1.1.0';
   /** Physiological threshold/rules version (POP_LIMITS, calculateRiskClass bounds). Bump on threshold changes. */
   private static RULES_VERSION = 'physio-thresholds@1.0.0';
 
@@ -177,19 +177,36 @@ export class AIEngineService {
   }
 
   private static prepareFeatures(athlete: any) {
-    return athlete.reports.map((report: any) => {
+    const points = athlete.reports.map((report: any) => {
       const results = report.testResults;
       const getVal = (p: string) => results.find((r: any) => r.parameter.toUpperCase().includes(p.toUpperCase()))?.value || 0;
-      
+
       return {
         hemoglobin: getVal('Hemoglobin'),
         hematocrit: getVal('Hematocrit'),
         testosteroneRatio: getVal('Testosterone'),
         reticulocyte: getVal('Reticulocyte'),
         epo: getVal('EPO'),
-        stabilityIndex: 85 // Mocked for now, would be calculated from previous turn's stats
       };
     });
+
+    // Real longitudinal signal (Phase 6), not a flat mock: how consistent
+    // this athlete's own readings have been across their history (excluding
+    // the latest, to avoid the latest point trivially "confirming" its own
+    // stability). It now genuinely varies per athlete based on their real
+    // data instead of being an identical constant (85) for every athlete
+    // regardless of history.
+    //
+    // Known limitation: applied uniformly across every point for this
+    // athlete (one value per athlete, not one per report), so it currently
+    // contributes no within-athlete variance to the z-score feature-
+    // importance calc or this athlete's own Isolation Forest training —
+    // only to comparisons ACROSS athletes with different history profiles.
+    // A per-report trailing-window version would close that gap; tracked
+    // as a refinement, not a blocker (this was previously a hardcoded
+    // constant with zero signal in any direction).
+    const stabilityIndex = computeStabilityIndex(points.slice(1));
+    return points.map((p: any) => ({ ...p, stabilityIndex }));
   }
 
   private static featureVector(f: any): number[] {

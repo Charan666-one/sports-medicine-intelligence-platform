@@ -73,3 +73,40 @@ export function evaluateAnomalySignals(latest: MarkerPoint, history: MarkerPoint
 
   return { statScore, popScore, maxZ, drivers, isFlagged: maxZ >= 3 || popScore >= 0.6 };
 }
+
+/** Below this, a marker's coefficient of variation is treated as "unstable" (100 -> down toward 0). */
+const CV_UNSTABLE_CEILING = 0.25;
+
+/**
+ * Longitudinal physiological stability (Phase 6 baseline signal), 0-100:
+ * how consistent an athlete's own core biomarkers have been across their
+ * available report history, via mean coefficient-of-variation (stdDev /
+ * mean) across ANOMALY_MARKERS — low CV (tight, consistent readings) scores
+ * high; volatile report-to-report swings score low.
+ *
+ * Needs >= 3 prior points per marker to be meaningful (same floor as the
+ * personal-baseline z-score above); returns the neutral midpoint (50) when
+ * there isn't enough history yet, rather than a false, over-confident
+ * default — this feeds the anomaly-detection feature vector, where an
+ * athlete's very first few reports must not be silently treated as
+ * maximally "stable."
+ */
+export function computeStabilityIndex(history: MarkerPoint[]): number {
+  const hist = (history || []).filter(Boolean);
+  const cvs: number[] = [];
+
+  for (const m of ANOMALY_MARKERS) {
+    const vals = hist.map((h) => h[m]).filter((v) => typeof v === 'number' && v > 0);
+    if (vals.length < 3) continue;
+    const mean = ss.mean(vals);
+    if (mean <= 0) continue;
+    const cv = ss.standardDeviation(vals) / mean;
+    cvs.push(cv);
+  }
+
+  if (cvs.length === 0) return 50; // insufficient history — neutral, not falsely confident
+
+  const meanCv = ss.mean(cvs);
+  const stability = 100 * Math.max(0, 1 - meanCv / CV_UNSTABLE_CEILING);
+  return Number(stability.toFixed(1));
+}
