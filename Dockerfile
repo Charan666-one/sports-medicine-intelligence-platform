@@ -19,10 +19,14 @@ ENV NODE_ENV=production
 ENV PORT=3000
 
 # Upgrade first: the base image's OS packages (e.g. libgnutls30, libcap2)
-# lag behind Debian security patches between node:20-slim rebuilds.
+# lag behind Debian security patches between node:20-slim rebuilds, and the
+# npm CLI node:20-slim bundles vendors its own dependency tree (tar, glob,
+# minimatch, brace-expansion, ...) that similarly lags and shows up in image
+# scans even though nothing in this app invokes npm on untrusted input.
 RUN apt-get update && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends openssl ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && npm install -g npm@latest
 
 # Fresh production-only install (not a copy of the build stage's
 # node_modules) so build-only tooling (vite, esbuild, eslint, vitest, ...)
