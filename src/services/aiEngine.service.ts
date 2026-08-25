@@ -6,6 +6,7 @@ import { ExplainabilityService, XAIReport } from './explainability.service.js';
 import { SocketService } from './socket.service.js';
 import { isGeminiEnabled } from '../config/index.js';
 import { evaluateAnomalySignals } from './anomalyScoring.js';
+import { calculateRiskClass } from './riskClassification.js';
 import { sha256Json } from '../utils/checksum.js';
 
 export interface AIPredictionResult {
@@ -74,14 +75,14 @@ export class AIEngineService {
     const anomalyScore = anomaly.score;
 
     // 3. Risk Classification (Random Forest Logic)
-    const riskAnalysis = this.calculateRiskClass(latestFeatures);
+    const riskAnalysis = calculateRiskClass(latestFeatures as any);
 
     // 4. Generate Explainable AI Report
     let xaiReport = ExplainabilityService.generateReport(
       latestFeatures as any,
       dataPoints as any[],
       riskAnalysis.level,
-      riskAnalysis.probs,
+      riskAnalysis.probs as unknown as Record<string, number>,
       anomalyScore,
       isAnomaly
     );
@@ -230,31 +231,6 @@ export class AIEngineService {
     const score = Math.max(signals.statScore, signals.popScore, forestScore);
     const isAnomaly = signals.isFlagged || forestScore > 0.65;
     return { score: Number(score.toFixed(3)), isAnomaly, maxZ: signals.maxZ, drivers: signals.drivers };
-  }
-
-  private static calculateRiskClass(f: any) {
-    // Weighted logic simulating a Random Forest ensemble
-    let score = 0;
-    if (f.hemoglobin > 17.5) score += 35;
-    if (f.testosteroneRatio > 4) score += 40;
-    if (f.epo > 10) score += 40;
-    if (f.hematocrit > 52) score += 20;
-
-    let level = 'LOW';
-    let probs = { low: 0.9, moderate: 0.1, high: 0, critical: 0 };
-
-    if (score > 80) {
-      level = 'CRITICAL';
-      probs = { low: 0.05, moderate: 0.1, high: 0.25, critical: 0.6 };
-    } else if (score > 50) {
-      level = 'HIGH';
-      probs = { low: 0.1, moderate: 0.2, high: 0.5, critical: 0.2 };
-    } else if (score > 20) {
-      level = 'MODERATE';
-      probs = { low: 0.3, moderate: 0.5, high: 0.15, critical: 0.05 };
-    }
-
-    return { level, probs };
   }
 
   private static calculateFeatureImportance(latest: any, history: any[]) {

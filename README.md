@@ -205,6 +205,19 @@ no external network calls.
   `authorization.integration.test.ts` covers the authorization matrix:
   unauthenticated → 401, cross-tenant read → 404 (not leaked), tenant-list
   scoping, non-admin role on an admin-only mutation → 403, admin → 200/201.
+- **Model evaluation** (`tests/modelEvaluation.test.ts`, Phase 7): the
+  deterministic risk-classification and anomaly-detection logic is scored
+  against a synthetic, domain-labeled dataset (`tests/fixtures/`, dev/val/
+  test split — no real athlete data) using standard precision/recall/F1 and
+  a confusion matrix (`src/utils/evaluationMetrics.ts`). Current test-set
+  numbers: precision/recall/F1 = 1.0 on the primary (multi-marker)
+  evaluation. A separate, explicitly-documented case set shows the engine's
+  known conservative behavior: an isolated extreme single-marker reading
+  (e.g. EPO or T/E ratio alone) does not reach HIGH/CRITICAL by design —
+  it requires >=2 corroborating markers, a deliberate false-positive
+  guard, not a bug — 3 of 4 such cases in that set are domain-flagged as
+  arguably alert-worthy but are not currently flagged. Tracked in
+  `ENGINEERING_READINESS.md`.
 - **CI**: `.github/workflows/ci.yml` runs typecheck → lint → test → build on every push/PR.
 - **Logging** uses `pino` (pretty in dev, JSON in prod) with secret/PII redaction.
 - **Request IDs** (Phase 10 API quality): every request gets an ID — reused
