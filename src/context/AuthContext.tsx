@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
-import { api, getAuthToken, setAuthToken, AuthUser } from '../lib/api.js';
+import { api, getAuthToken, setAuthToken, getRefreshToken, setRefreshToken, AuthUser } from '../lib/api.js';
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -17,7 +17,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const logout = useCallback(() => {
+    // Best-effort revoke on the server — don't block clearing local state on it.
+    const refreshToken = getRefreshToken();
+    if (refreshToken) {
+      api.auth.logout(refreshToken).catch(() => {
+        /* token may already be expired/revoked — local logout still proceeds */
+      });
+    }
     setAuthToken(null);
+    setRefreshToken(null);
     setUser(null);
   }, []);
 
@@ -57,6 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const payload = res.data as any;
     if (!payload?.token) throw new Error('Login failed');
     setAuthToken(payload.token);
+    setRefreshToken(payload.refreshToken ?? null);
     setUser(payload.user);
   }, []);
 
@@ -66,6 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const payload = res.data as any;
       if (!payload?.token) throw new Error('Registration failed');
       setAuthToken(payload.token);
+      setRefreshToken(payload.refreshToken ?? null);
       setUser(payload.user);
     },
     [],

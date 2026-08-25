@@ -15,7 +15,11 @@ const envSchema = z.object({
     .string()
     .min(16, 'JWT_SECRET must be at least 16 characters')
     .default(isProd ? '' : 'dev-only-insecure-secret-change-me-0123456789'),
-  JWT_EXPIRES_IN: z.string().default('7d'),
+  // Short-lived by design (Phase 9): a leaked/stolen access token now has a
+  // small blast-radius window. Sessions stay alive via the refresh token
+  // below, rotated on each use.
+  JWT_EXPIRES_IN: z.string().default('15m'),
+  REFRESH_TOKEN_EXPIRES_DAYS: z.coerce.number().default(30),
 
   // 32-byte key (hex = 64 chars, or base64) for AES-256-GCM field encryption.
   ENCRYPTION_KEY: z

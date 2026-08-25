@@ -43,6 +43,7 @@ model User {
   activityLogs   ActivityLog[]
   reportsCreated MedicalReport[] @relation("ReportCreator")
   ingestionJobs  IngestionJob[]
+  refreshTokens  RefreshToken[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -71,6 +72,31 @@ model Permission {
   action   String // e.g., "REPORT_CREATE", "ATHLETE_VIEW"
   resource String // e.g., "MEDICAL_REPORTS", "ATHLETES"
   roles    Role[]
+}
+
+// Phase 9: short-lived JWT access tokens + long-lived, rotatable refresh
+// tokens. Only the SHA-256 hash of the opaque refresh token is stored — the
+// raw token is never persisted, only handed to the client once. Rotation
+// chains (replacedById) let a reused/revoked token be detected as a
+// possible theft and immediately revoke the whole chain.
+model RefreshToken {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  /** id of the token that replaced this one, once rotated. */
+  replacedById String?
+
+  userAgent String?
+  ip        String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 // --- ATHLETE DOMAIN ---

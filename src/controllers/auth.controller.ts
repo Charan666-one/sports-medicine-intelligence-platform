@@ -6,6 +6,7 @@ import { db } from '../services/db.js';
 import { config } from '../config/index.js';
 import { BadRequestError, UnauthorizedError } from '../errors/AppError.js';
 import { AuditService } from '../services/audit.service.js';
+import { RefreshTokenService, RefreshMeta } from '../services/refreshToken.service.js';
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -19,6 +20,10 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
+const refreshSchema = z.object({
+  refreshToken: z.string().min(1),
+});
+
 function signToken(user: { id: string; role?: { name?: string } | null }): string {
   return jwt.sign(
     { id: user.id, role: user.role?.name ?? 'USER' },
@@ -30,6 +35,10 @@ function signToken(user: { id: string; role?: { name?: string } | null }): strin
 function publicUser(user: any) {
   const { password, ...rest } = user;
   return rest;
+}
+
+function requestMeta(req: Request): RefreshMeta {
+  return { userAgent: req.headers['user-agent'], ip: req.ip };
 }
 
 export class AuthController {
@@ -68,7 +77,8 @@ export class AuthController {
         req,
       });
       const token = signToken(user);
-      res.status(201).json({ status: 'success', data: { token, user: publicUser(user) } });
+      const refreshToken = await RefreshTokenService.issue(user.id, requestMeta(req));
+      res.status(201).json({ status: 'success', data: { token, refreshToken, user: publicUser(user) } });
     } catch (error) {
       next(error);
     }
@@ -89,7 +99,8 @@ export class AuthController {
 
       await AuditService.log({ userId: user.id, action: 'USER_LOGIN', details: `Login ${email}`, req });
       const token = signToken(user);
-      res.json({ status: 'success', data: { token, user: publicUser(user) } });
+      const refreshToken = await RefreshTokenService.issue(user.id, requestMeta(req));
+      res.json({ status: 'success', data: { token, refreshToken, user: publicUser(user) } });
     } catch (error) {
       next(error);
     }
@@ -100,6 +111,40 @@ export class AuthController {
       const user = req.user;
       if (!user) throw new UnauthorizedError('Not authenticated.');
       res.json({ status: 'success', data: { user: publicUser(user) } });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Exchanges a valid (unexpired, unused) refresh token for a new access
+   * token + a newly-rotated refresh token. The presented refresh token is
+   * consumed — reusing it afterward revokes the whole session chain.
+   */
+  static async refresh(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parsed = refreshSchema.safeParse(req.body);
+      if (!parsed.success) throw new BadRequestError('refreshToken is required.');
+
+      const { userId, refreshToken } = await RefreshTokenService.rotate(parsed.data.refreshToken, requestMeta(req));
+      const user = await db.user.findUnique({ where: { id: userId }, include: { role: true } });
+      if (!user || user.isActive === false) throw new UnauthorizedError('Account no longer active.');
+
+      const token = signToken(user);
+      res.json({ status: 'success', data: { token, refreshToken, user: publicUser(user) } });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** Revokes the presented refresh token (logout on this device). */
+  static async logout(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parsed = refreshSchema.safeParse(req.body);
+      if (parsed.success) {
+        await RefreshTokenService.revoke(parsed.data.refreshToken);
+      }
+      res.json({ status: 'success', data: { message: 'Logged out.' } });
     } catch (error) {
       next(error);
     }

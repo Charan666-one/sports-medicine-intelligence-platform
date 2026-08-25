@@ -24,6 +24,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 const TOKEN_KEY = 'nexus_token';
+const REFRESH_TOKEN_KEY = 'nexus_refresh_token';
 
 export function getAuthToken(): string | null {
   try {
@@ -43,12 +44,68 @@ export function setAuthToken(token: string | null): void {
   }
 }
 
-/** Called when the server rejects the token (401). Clears it and signals the app. */
+export function getRefreshToken(): string | null {
+  try {
+    return typeof window !== 'undefined' ? window.localStorage.getItem(REFRESH_TOKEN_KEY) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setRefreshToken(token: string | null): void {
+  try {
+    if (typeof window === 'undefined') return;
+    if (token) window.localStorage.setItem(REFRESH_TOKEN_KEY, token);
+    else window.localStorage.removeItem(REFRESH_TOKEN_KEY);
+  } catch {
+    /* ignore storage errors */
+  }
+}
+
+/** Called when the server rejects the token (401) and refresh also failed/unavailable. */
 function onUnauthorized(): void {
   setAuthToken(null);
+  setRefreshToken(null);
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('nexus:unauthorized'));
   }
+}
+
+/**
+ * Access tokens are short-lived (see JWT_EXPIRES_IN) by design — sessions
+ * stay alive via this refresh instead. Concurrent 401s share one in-flight
+ * refresh (the refresh token is single-use/rotated, so firing it twice in
+ * parallel would invalidate the second caller's attempt).
+ */
+let refreshInFlight: Promise<boolean> | null = null;
+
+async function tryRefreshSession(): Promise<boolean> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return false;
+
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      try {
+        const res = await fetch('/api/v1/auth/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken }),
+        });
+        if (!res.ok) return false;
+        const json = await res.json();
+        const data = json?.data ?? json;
+        if (!data?.token || !data?.refreshToken) return false;
+        setAuthToken(data.token);
+        setRefreshToken(data.refreshToken);
+        return true;
+      } catch {
+        return false;
+      } finally {
+        refreshInFlight = null;
+      }
+    })();
+  }
+  return refreshInFlight;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -354,6 +411,7 @@ class ApiClient {
       formData?: FormData;
       query?: Record<string, string | number | boolean | undefined | null>;
     } = {},
+    isRetry = false,
   ): Promise<ApiResponse<T>> {
     const url = new URL(
       `${this.baseUrl}${path}`,
@@ -418,8 +476,14 @@ class ApiClient {
 
     // Non-2xx: surface the server's error message before normalising
     if (!response.ok) {
-      // Session expired / invalid — clear the token and let the app redirect.
-      if (response.status === 401 && path !== '/auth/login' && path !== '/auth/register') {
+      const isAuthEndpoint = path === '/auth/login' || path === '/auth/register' || path === '/auth/refresh';
+      if (response.status === 401 && !isAuthEndpoint) {
+        // Access token expired — try one silent refresh-and-retry before
+        // giving up on the session (short-lived tokens make this the
+        // common case, not the exception).
+        if (!isRetry && (await tryRefreshSession())) {
+          return this.request<T>(method, path, options, true);
+        }
         onUnauthorized();
       }
       throw new ApiError({
@@ -723,6 +787,7 @@ export interface AuthUser {
 
 export interface AuthPayload {
   token: string;
+  refreshToken: string;
   user: AuthUser;
 }
 
@@ -735,6 +800,10 @@ export const authAPI = {
   },
   me(): Promise<ApiResponse<{ user: AuthUser }>> {
     return client.get<{ user: AuthUser }>('/auth/me');
+  },
+  /** Revokes the current refresh token (logout on this device). Best-effort. */
+  logout(refreshToken: string): Promise<ApiResponse<{ message: string }>> {
+    return client.post<{ message: string }>('/auth/logout', { refreshToken });
   },
 } as const;
 
