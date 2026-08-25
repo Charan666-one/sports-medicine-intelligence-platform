@@ -199,6 +199,13 @@ no external network calls.
 - **Vitest** unit tests live in `tests/` (crypto, biomarker normalization/extraction, validation).
 - **CI**: `.github/workflows/ci.yml` runs typecheck → lint → test → build on every push/PR.
 - **Logging** uses `pino` (pretty in dev, JSON in prod) with secret/PII redaction.
+- **Health checks** (Phase 12): `GET /api/health` is liveness — always 200 if
+  the process is up, checks nothing external, safe for a restart decision.
+  `GET /api/health/ready` is readiness — pings Postgres and Redis with a 2s
+  timeout each and returns 503 if either is unreachable, so an orchestrator
+  stops routing traffic to an instance that can't actually serve it. Render
+  is configured to use the readiness endpoint (`render.yaml`); Docker
+  Compose's `app` healthcheck uses it too.
 
 ## Docker
 

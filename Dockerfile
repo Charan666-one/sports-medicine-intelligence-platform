@@ -2,7 +2,7 @@
 FROM node:20-slim AS build
 WORKDIR /app
 
-# System deps for native modules (sharp, pdf-parse, prisma engines).
+# System deps for native modules (pdf-parse, prisma engines).
 RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -21,12 +21,18 @@ ENV PORT=3000
 RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy installed deps (incl. prisma client, tsx) and app sources.
-COPY --from=build /app/node_modules ./node_modules
+# Fresh production-only install (not a copy of the build stage's
+# node_modules) so build-only tooling (vite, esbuild, eslint, vitest, ...)
+# never ends up in the image that actually runs — smaller image, smaller
+# attack surface. tsx and the prisma CLI are real `dependencies` (this
+# runtime executes TypeScript directly via tsx and runs `prisma migrate
+# deploy` on boot), so they're included.
+COPY package*.json ./
+COPY prisma ./prisma
+RUN npm ci --omit=dev && npx prisma generate
+
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/tsconfig*.json ./
-COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/src ./src
 COPY --from=build /app/scripts ./scripts
 

@@ -57,6 +57,14 @@ services:
     volumes:
       - app_uploads:/app/uploads
       - app_data:/app/data
+    healthcheck:
+      # No curl/wget in the slim image — Node 20 has built-in fetch, so this
+      # avoids adding a package just for the healthcheck.
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     restart: unless-stopped
 
   # Asynchronous ingestion worker (Phase 3): processes the BullMQ queue that

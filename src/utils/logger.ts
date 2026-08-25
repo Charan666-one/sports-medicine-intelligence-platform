@@ -47,7 +47,7 @@ export const logger = {
 export const httpLogger = pinoHttp({
   logger: pinoInstance,
   // Quieten health checks; keep everything else.
-  autoLogging: { ignore: (req) => req.url === '/api/health' },
+  autoLogging: { ignore: (req) => req.url === '/api/health' || req.url === '/api/health/ready' },
   customLogLevel: (_req, res, err) => {
     if (err || res.statusCode >= 500) return 'error';
     if (res.statusCode >= 400) return 'warn';
