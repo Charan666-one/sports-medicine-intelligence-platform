@@ -110,6 +110,23 @@ Given the same `inputHash` and the same `engineVersion`/`rulesVersion`, a
 prediction is independently reproducible — bump the version constants in
 `AIEngineService` whenever the classification logic or thresholds change.
 
+## Longitudinal intelligence: change-point detection
+
+Single-point anomaly detection (above) answers "is the latest reading
+unusual?" — it can't catch a doping-style step-change that then stabilizes
+at a new (elevated) level, since after a few reports at the new level
+nothing looks anomalous point-to-point anymore. `GET /athletes/:id/statistics`
+now also runs change-point detection (`src/services/changePointDetection.ts`)
+per biomarker: exhaustive single-change-point mean-shift detection (binary
+segmentation) over the athlete's full ordered history, flagging the split
+with the largest before/after difference in pooled-standard-error units.
+
+This also flags a sustained gradual drift, not only a sharp jump — that's
+intentional (a steady multi-month trend is itself longitudinally relevant),
+not a bug. A true trend-vs-step distinction would need a different method;
+see the module's doc comment. Surfaced on the athlete detail page under
+"Longitudinal Findings" alongside statistical anomalies.
+
 ## Data quality vs. risk signal
 
 A flagged biomarker reading can mean very different things, and conflating

@@ -1,4 +1,5 @@
 import { db } from './db.js';
+import { detectChangePoint, ChangePointResult } from './changePointDetection.js';
 
 export interface AnomalyInsight {
   parameter: string;
@@ -9,6 +10,8 @@ export interface AnomalyInsight {
   isAnomaly: boolean;
   confidence: number;
   message: string;
+  /** Phase 6: did this parameter's trajectory shift to a new regime at some point, not just "is the latest value odd"? */
+  changePoint: ChangePointResult;
 }
 
 export interface StatisticalSummary {
@@ -85,6 +88,12 @@ export class AnomalyEngineService {
         cumulativeAnomalyScore += 15;
       }
 
+      const changePoint = detectChangePoint(values);
+      if (changePoint.detected && !message) {
+        const direction = changePoint.meanAfter! > changePoint.meanBefore! ? 'upward' : 'downward';
+        message = `${param} shows a sustained ${direction} regime shift partway through its history (not just the latest reading).`;
+      }
+
       insights.push({
         parameter: param,
         zScore,
@@ -93,7 +102,8 @@ export class AnomalyEngineService {
         variance,
         isAnomaly,
         confidence,
-        message: message || `${param} behavior within normal statistical bounds.`
+        message: message || `${param} behavior within normal statistical bounds.`,
+        changePoint,
       });
       
       totalParametersAnalyzed++;
@@ -128,7 +138,7 @@ export class AnomalyEngineService {
   static async getStatisticalFindings(athleteId: string): Promise<string[]> {
     const summary = await this.analyzeLongitudinalTrends(athleteId);
     return summary.insights
-      .filter(i => i.isAnomaly || i.message.includes('Significant'))
+      .filter(i => i.isAnomaly || i.message.includes('Significant') || i.changePoint.detected)
       .map(i => i.message);
   }
 }

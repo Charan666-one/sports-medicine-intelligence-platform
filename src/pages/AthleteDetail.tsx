@@ -348,6 +348,31 @@ export default function AthleteDetail() {
               </div>
             </div>
 
+            {stats?.insights?.some((i: any) => i.isAnomaly || i.changePoint?.detected) && (
+              <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
+                <h3 className="font-bold text-slate-900 mb-6 flex items-center gap-2">
+                  <Zap className="w-5 h-5 text-amber-600" /> LONGITUDINAL FINDINGS
+                </h3>
+                <div className="space-y-3">
+                  {stats.insights
+                    .filter((i: any) => i.isAnomaly || i.changePoint?.detected)
+                    .map((i: any, idx: number) => (
+                      <div key={idx} className="flex items-start gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                        <span className={`shrink-0 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ring-1 ${
+                          i.changePoint?.detected ? 'bg-indigo-50 text-indigo-700 ring-indigo-200' : 'bg-amber-50 text-amber-700 ring-amber-200'
+                        }`}>
+                          {i.changePoint?.detected ? 'Regime Shift' : 'Statistical Anomaly'}
+                        </span>
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">{i.parameter}</p>
+                          <p className="text-xs text-slate-500 mt-0.5">{i.message}</p>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+
             <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm transition-all hover:border-slate-300">
                <h3 className="font-bold text-slate-900 mb-6 flex items-center gap-2">
                   <ShieldCheck className="w-5 h-5 text-emerald-600" /> BIOLOGICAL PASSPORT VALIDATION
