@@ -44,6 +44,7 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/tsconfig*.json ./
 COPY --from=build /app/src ./src
 COPY --from=build /app/scripts ./scripts
+COPY --from=build /app/openapi.yaml ./
 
 # Runtime data (uploads, OCR model) lives on a volume; the DB is external Postgres.
 RUN mkdir -p uploads data/tessdata

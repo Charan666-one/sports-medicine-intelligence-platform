@@ -215,6 +215,24 @@ GEMINI_API_KEY="your-real-key"
 Leaving the placeholder value keeps all AI reasoning deterministic and makes
 no external network calls.
 
+## API documentation
+
+The full REST API is documented as an OpenAPI 3.0 spec: `openapi.yaml`
+(hand-authored — every path was cross-checked against the actual route
+files, not generated from decorators, so it can't silently drift without a
+human noticing in review). Served two ways once the app is running:
+
+- **`GET /api/docs`** — interactive Swagger UI (try requests, see
+  request/response shapes, which endpoints need a Bearer token — auth
+  requirements are correct per-endpoint, e.g. `/auth/register`/`/auth/login`
+  are unlocked, everything else is locked).
+- **`GET /api/openapi.json`** — the raw spec, for external tooling
+  (Postman, codegen, contract tests).
+
+`npm run docs:validate` validates `openapi.yaml` against the OpenAPI 3.0
+schema (structural correctness — not that it matches the code, which is a
+manual review responsibility) and runs in CI on every push/PR.
+
 ## Useful scripts
 
 | Command | Description |
@@ -233,6 +251,7 @@ no external network calls.
 | `npm run format` | Prettier write; `format:check` to verify |
 | `npm run test` | Run the Vitest unit suite; `test:coverage` for coverage |
 | `npm run check` | typecheck + lint + test (the CI gate) |
+| `npm run docs:validate` | Validate `openapi.yaml` against the OpenAPI 3.0 schema |
 
 ## Development & quality
 

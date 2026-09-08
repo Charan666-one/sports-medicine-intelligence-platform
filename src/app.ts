@@ -2,6 +2,9 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import path from 'path';
+import fs from 'fs';
+import { load as loadYaml } from 'js-yaml';
+import swaggerUi from 'swagger-ui-express';
 import { fileURLToPath } from 'url';
 import { config, corsOrigins } from './config/index.js';
 import { httpLogger } from './utils/logger.js';
@@ -141,6 +144,18 @@ export async function createApp() {
     res.set('Content-Type', register.contentType);
     res.send(await register.metrics());
   });
+
+  // API documentation (readiness blocker B3): the OpenAPI source of truth
+  // is openapi.yaml at the repo root (hand-authored, validated against the
+  // OpenAPI 3.0 schema — see package.json's "docs:validate" script), not
+  // generated from route decorators, so it can't silently drift out of
+  // sync with reality without a human noticing in review. Served both as
+  // interactive Swagger UI and as raw JSON for external tooling.
+  const openapiSpec = loadYaml(
+    fs.readFileSync(path.resolve(__dirname, '../openapi.yaml'), 'utf8'),
+  ) as Record<string, unknown>;
+  app.get('/api/openapi.json', (_req, res) => res.json(openapiSpec));
+  app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openapiSpec));
 
   // Rate limit all API traffic, then mount the versioned API.
   app.use('/api', apiLimiter);

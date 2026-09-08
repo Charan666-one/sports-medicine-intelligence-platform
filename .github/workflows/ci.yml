@@ -67,6 +67,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Validate OpenAPI spec
+        run: npm run docs:validate
+
       - name: Test
         run: npm run test
 
