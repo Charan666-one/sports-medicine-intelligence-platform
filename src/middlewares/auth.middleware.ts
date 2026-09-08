@@ -7,6 +7,8 @@ import { db } from '../services/db.js';
 interface TokenPayload {
   id: string;
   role: string;
+  /** Present only on a short-lived MFA-challenge token (see auth.controller.ts). */
+  scope?: string;
 }
 
 /**
@@ -29,6 +31,14 @@ export const protect = async (req: Request, _res: Response, next: NextFunction) 
       decoded = jwt.verify(token, config.JWT_SECRET) as TokenPayload;
     } catch {
       return next(new UnauthorizedError('Invalid or expired token.'));
+    }
+
+    // Defense in depth: an MFA-challenge token (issued mid-login, before the
+    // second factor is verified) must never work as a normal bearer token,
+    // even though only mfaChallenge's own jwt.verify call currently accepts
+    // it — this rejects it explicitly rather than relying on that alone.
+    if (decoded.scope === 'mfa_pending') {
+      return next(new UnauthorizedError('MFA verification required.'));
     }
 
     const currentUser = await db.user.findUnique({

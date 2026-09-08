@@ -33,6 +33,14 @@ model User {
   name     String
   isActive Boolean @default(true)
 
+  // MFA (TOTP, Phase 9). `mfaSecret` holds the pending OR active secret —
+  // it's written on /mfa/setup but `mfaEnabled` only flips to true once the
+  // user proves possession via /mfa/enable, so a setup a user never
+  // finished doesn't silently gate their next login. Encrypted at rest via
+  // the same ENCRYPTED_FIELDS mechanism as medical data (src/services/db.ts).
+  mfaEnabled Boolean @default(false)
+  mfaSecret  String?
+
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])
 
@@ -44,12 +52,28 @@ model User {
   reportsCreated MedicalReport[] @relation("ReportCreator")
   ingestionJobs  IngestionJob[]
   refreshTokens  RefreshToken[]
+  mfaBackupCodes MfaBackupCode[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([organizationId])
   @@index([roleId])
+}
+
+// One-time-use MFA recovery codes, issued when a user enables MFA. Only the
+// bcrypt hash is stored (same treatment as passwords, never encrypted-
+// reversible — recovery codes are never re-displayed after issuance).
+model MfaBackupCode {
+  id       String    @id @default(uuid())
+  userId   String
+  user     User      @relation(fields: [userId], references: [id])
+  codeHash String
+  usedAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 model Role {

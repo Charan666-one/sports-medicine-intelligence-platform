@@ -1,13 +1,20 @@
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import { api, getAuthToken, setAuthToken, getRefreshToken, setRefreshToken, AuthUser } from '../lib/api.js';
 
+/** Returned by login(): either the session started, or MFA needs a second step (see mfaChallenge). */
+export type LoginResult = { mfaRequired: false } | { mfaRequired: true; mfaToken: string };
+
 interface AuthContextValue {
   user: AuthUser | null;
   isAuthenticated: boolean;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<LoginResult>;
+  /** Completes an MFA-gated login: exchanges the mfaToken + a code for a real session. */
+  mfaChallenge: (mfaToken: string, code: string) => Promise<void>;
   register: (input: { email: string; password: string; name: string; organizationName?: string }) => Promise<void>;
   logout: () => void;
+  /** Re-fetches the current user — call after an action that changes it server-side but not via login/register (e.g. MFA enable/disable). */
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -60,10 +67,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('nexus:unauthorized', handler);
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string): Promise<LoginResult> => {
     const res = await api.auth.login(email, password);
     const payload = res.data as any;
+    if (payload?.mfaRequired) {
+      return { mfaRequired: true, mfaToken: payload.mfaToken };
+    }
     if (!payload?.token) throw new Error('Login failed');
+    setAuthToken(payload.token);
+    setRefreshToken(payload.refreshToken ?? null);
+    setUser(payload.user);
+    return { mfaRequired: false };
+  }, []);
+
+  const mfaChallenge = useCallback(async (mfaToken: string, code: string) => {
+    const res = await api.auth.mfaChallenge(mfaToken, code);
+    const payload = res.data as any;
+    if (!payload?.token) throw new Error('MFA verification failed');
     setAuthToken(payload.token);
     setRefreshToken(payload.refreshToken ?? null);
     setUser(payload.user);
@@ -81,8 +101,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const refreshUser = useCallback(async () => {
+    const res = await api.auth.me();
+    setUser((res.data as any)?.user ?? null);
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated: !!user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, isAuthenticated: !!user, loading, login, mfaChallenge, register, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

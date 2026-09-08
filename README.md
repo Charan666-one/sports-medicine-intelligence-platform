@@ -187,9 +187,21 @@ framed as a confirmed risk signal (`AIEngineService.processAthleteAIUpdate`).
   npm's own bundled CLI dependencies (not this project's code — see the
   file's comments); re-check it after bumping the npm version in the
   Dockerfile, since the exact CVE IDs shift between npm patch releases.
-- **Known gap**: multi-factor authentication is not yet implemented — single
-  factor (password + JWT) only. Tracked as a blocker in
-  `ENGINEERING_READINESS.md`.
+- **Multi-factor authentication** (TOTP, `src/services/mfa.service.ts`): opt-in
+  per account via Settings → Account Security. Enrollment (`POST
+  /auth/mfa/setup`) generates a pending secret + QR code; it only takes
+  effect once proven with a real code (`POST /auth/mfa/enable`), which also
+  issues 8 single-use backup codes (bcrypt-hashed, shown once). Once
+  enabled, `POST /auth/login` no longer returns session tokens for that
+  account — it returns a narrow, 5-minute `mfaToken` (rejected outright by
+  the `protect` middleware if someone tries to use it as a normal bearer
+  token) that must be exchanged via `POST /auth/mfa/challenge` with a live
+  TOTP code or an unused backup code. The TOTP secret itself is encrypted
+  at rest via the same field-level AES-256-GCM mechanism as medical data.
+  Disabling MFA (`POST /auth/mfa/disable`) requires re-entering the current
+  password. Verified end-to-end via a live browser session (register →
+  enroll → scan QR → confirm → log out → MFA-gated login → wrong code
+  rejected → backup code accepted), not just unit tests.
 
 ### Optional: enable Gemini LLM enhancement
 

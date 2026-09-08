@@ -21,6 +21,9 @@ const ENCRYPTED_FIELDS: Record<string, string[]> = {
   MedicalReport: ['ocrRawText', 'extractedJSON', 'validationNotes', 'dataQualityFindings'],
   AthleteMedicalProfile: ['allergies', 'history'],
   BiologicalPassport: ['hematologicalMarkers', 'steroidalMarkers'],
+  // MFA TOTP secret (Phase 9). Same treatment as medical data — a raw DB
+  // read alone must not be enough to mint valid codes for a user's account.
+  User: ['mfaSecret'],
 };
 
 function encryptData(model: string, data: any) {

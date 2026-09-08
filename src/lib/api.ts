@@ -782,6 +782,7 @@ export interface AuthUser {
   email: string;
   name: string;
   role?: { id: string; name: string } | null;
+  mfaEnabled?: boolean;
   [key: string]: unknown;
 }
 
@@ -791,9 +792,15 @@ export interface AuthPayload {
   user: AuthUser;
 }
 
+/** Returned by /auth/login (and /auth/mfa/challenge on a wrong code, never on success) when the account has MFA enabled — no session tokens yet. */
+export interface MfaRequiredPayload {
+  mfaRequired: true;
+  mfaToken: string;
+}
+
 export const authAPI = {
-  login(email: string, password: string): Promise<ApiResponse<AuthPayload>> {
-    return client.post<AuthPayload>('/auth/login', { email, password });
+  login(email: string, password: string): Promise<ApiResponse<AuthPayload | MfaRequiredPayload>> {
+    return client.post<AuthPayload | MfaRequiredPayload>('/auth/login', { email, password });
   },
   register(input: { email: string; password: string; name: string; organizationName?: string }): Promise<ApiResponse<AuthPayload>> {
     return client.post<AuthPayload>('/auth/register', input);
@@ -804,6 +811,22 @@ export const authAPI = {
   /** Revokes the current refresh token (logout on this device). Best-effort. */
   logout(refreshToken: string): Promise<ApiResponse<{ message: string }>> {
     return client.post<{ message: string }>('/auth/logout', { refreshToken });
+  },
+  /** Second step of an MFA-gated login: exchanges the mfaToken + a TOTP/backup code for real session tokens. */
+  mfaChallenge(mfaToken: string, code: string): Promise<ApiResponse<AuthPayload>> {
+    return client.post<AuthPayload>('/auth/mfa/challenge', { mfaToken, code });
+  },
+  /** Starts MFA enrollment for the current (authenticated) user; not yet enabled. */
+  mfaSetup(): Promise<ApiResponse<{ otpauthUrl: string; qrCodeDataUrl: string }>> {
+    return client.post<{ otpauthUrl: string; qrCodeDataUrl: string }>('/auth/mfa/setup', {});
+  },
+  /** Confirms enrollment with a real authenticator code; returns one-time backup codes. */
+  mfaEnable(code: string): Promise<ApiResponse<{ backupCodes: string[] }>> {
+    return client.post<{ backupCodes: string[] }>('/auth/mfa/enable', { code });
+  },
+  /** Disables MFA. Requires the current password as a safety check. */
+  mfaDisable(password: string): Promise<ApiResponse<{ message: string }>> {
+    return client.post<{ message: string }>('/auth/mfa/disable', { password });
   },
 } as const;
 
