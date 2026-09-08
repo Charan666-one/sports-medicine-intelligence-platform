@@ -10,10 +10,37 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NODE_ENV: test
-      DATABASE_URL: 'file:./dev.db'
+      DATABASE_URL: 'postgresql://nexus:nexus@127.0.0.1:5432/nexus?schema=public'
+      SHADOW_DATABASE_URL: 'postgresql://nexus:nexus@127.0.0.1:5432/nexus_shadow?schema=public'
+      REDIS_URL: 'redis://127.0.0.1:6379'
       JWT_SECRET: 'ci-only-secret-key-not-for-production'
       ENCRYPTION_KEY: 'ci-only-encryption-key-not-for-prod-32b'
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nexus
+          POSTGRES_PASSWORD: nexus
+          POSTGRES_DB: nexus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nexus"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
 
@@ -25,8 +52,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Create shadow database
+        run: PGPASSWORD=nexus psql -h 127.0.0.1 -U nexus -d nexus -c 'CREATE DATABASE nexus_shadow;'
+
       - name: Generate Prisma client
         run: npx prisma generate
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
 
       - name: Type-check
         run: npm run typecheck
@@ -34,8 +67,42 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Validate OpenAPI spec
+        run: npm run docs:validate
+
       - name: Test
         run: npm run test
 
       - name: Build
         run: npm run build
+
+      - name: Dependency vulnerability scan
+        run: npm audit --audit-level=high
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan for committed secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  container-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t nexus-sports-medicine:ci .
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: 'nexus-sports-medicine:ci'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+          ignore-unfixed: true
+          trivyignores: '.trivyignore'

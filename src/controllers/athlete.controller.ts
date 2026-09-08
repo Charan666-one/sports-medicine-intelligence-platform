@@ -7,6 +7,7 @@ import { RiskEngineService } from '../services/riskEngine.service.js';
 import { AnomalyEngineService } from '../services/anomalyEngine.service.js';
 import { AIEngineService } from '../services/aiEngine.service.js';
 import { SocketService } from '../services/socket.service.js';
+import { orgId, assertAthleteInOrg } from '../utils/scope.js';
 
 /**
  * Safely parses stringified JSON structures with a fallback mechanism.
@@ -38,7 +39,7 @@ export const getAllAthletes = async (req: Request, res: Response, next: NextFunc
         },
         organization: true
       },
-      where: { deletedAt: null }
+      where: { deletedAt: null, organizationId: orgId(req) }
     });
 
     const athletes = athletesRaw.map(a => ({
@@ -62,8 +63,8 @@ export const getAllAthletes = async (req: Request, res: Response, next: NextFunc
 export const getAthleteById = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const athleteRaw = await db.athlete.findUnique({
-      where: { id },
+    const athleteRaw = await db.athlete.findFirst({
+      where: { id, organizationId: orgId(req), deletedAt: null },
       include: {
         reports: {
           include: { testResults: true },
@@ -128,6 +129,7 @@ export const getAthleteById = async (req: Request, res: Response, next: NextFunc
 export const getAthleteStatistics = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
+    await assertAthleteInOrg(req, id);
     const stats = await AnomalyEngineService.analyzeLongitudinalTrends(id);
     res.json({
       status: 'success',
@@ -144,6 +146,7 @@ export const getAthleteStatistics = async (req: Request, res: Response, next: Ne
 export const runAthleteAIAnalysis = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
+    await assertAthleteInOrg(req, id);
     const result = await AIEngineService.processAthleteAIUpdate(id);
     res.json({
       status: 'success',
@@ -160,9 +163,10 @@ export const runAthleteAIAnalysis = async (req: Request, res: Response, next: Ne
 export const recalculateAthleteRisk = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
+    await assertAthleteInOrg(req, id);
     const result = await RiskEngineService.processAthleteUpdate(id);
     await AIEngineService.processAthleteAIUpdate(id);
-    
+
     res.json({
       status: 'success',
       data: { result }
@@ -182,9 +186,10 @@ export const recalculateAllAthletesRisk = async (req: Request, res: Response, ne
   logger.info(`[${syncId}] Global AI surveillance recalculation process initialized.`);
 
   try {
-    // 1. Fetch only records matching active tracking criteria
+    // 1. Fetch only records matching active tracking criteria — scoped to the
+    //    caller's organization so a sync never touches another tenant's athletes.
     const athletes = await db.athlete.findMany({
-      where: { deletedAt: null },
+      where: { deletedAt: null, organizationId: orgId(req) },
       select: { id: true, name: true }
     });
 
@@ -266,21 +271,10 @@ export const recalculateAllAthletesRisk = async (req: Request, res: Response, ne
  */
 export const createAthlete = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { name, dateOfBirth, gender, nationality, sport, organizationId } = req.body;
+    const { name, dateOfBirth, gender, nationality, sport } = req.body;
 
-    let orgId = organizationId;
-    if (!orgId) {
-      const org = await db.organization.findFirst();
-      if (!org) {
-        const newOrg = await db.organization.create({
-          data: { name: 'Global Anti-Doping Agency', slug: 'gada' }
-        });
-        orgId = newOrg.id;
-      } else {
-        orgId = org.id;
-      }
-    }
-
+    // Always create the athlete in the CALLER's organization — never trust an
+    // organizationId from the request body (tenant isolation).
     const athlete = await db.athlete.create({
       data: {
         name,
@@ -288,7 +282,7 @@ export const createAthlete = async (req: Request, res: Response, next: NextFunct
         gender,
         nationality,
         sport,
-        organizationId: orgId,
+        organizationId: orgId(req),
         status: 'ACTIVE'
       }
     });
@@ -299,10 +293,10 @@ export const createAthlete = async (req: Request, res: Response, next: NextFunct
       logger.error(`Initial risk score setup bypassed for athlete ${athlete.id}: ${engineInitError.message}`);
     }
     
-    const systemUserId = await getSystemUserId();
+    const actingUserId = req.user?.id ?? (await getSystemUserId());
     await db.activityLog.create({
       data: {
-        userId: systemUserId,
+        userId: actingUserId,
         action: 'ATHLETE_REGISTERED',
         details: `New athlete registered: ${name}`
       }

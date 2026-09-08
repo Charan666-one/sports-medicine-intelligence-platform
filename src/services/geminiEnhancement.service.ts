@@ -30,11 +30,15 @@ export class GeminiEnhancementService {
         
         DETERMINISTIC DATA:
         ${deterministicSummary}
-        
+
         FINDINGS:
         ${findings.join('\n')}
-        
+
         Keep it clinical and objective. Do not add medical advice. Do not hallucinate data.
+        This is a statistical risk-screening tool, not a doping determination. Never state or
+        imply that doping has been proven, confirmed, or detected — describe findings only as
+        risk indicators or physiological anomalies that warrant human analyst review. Do not use
+        words like "doping", "doper", "cheating", or "guilty" to describe the athlete.
       `;
 
       const result = await model.generateContent(prompt);

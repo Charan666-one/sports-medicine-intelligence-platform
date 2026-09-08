@@ -5,7 +5,9 @@ import * as ss from 'simple-statistics';
 import { ExplainabilityService, XAIReport } from './explainability.service.js';
 import { SocketService } from './socket.service.js';
 import { isGeminiEnabled } from '../config/index.js';
-import { evaluateAnomalySignals } from './anomalyScoring.js';
+import { evaluateAnomalySignals, computeStabilityIndex } from './anomalyScoring.js';
+import { calculateRiskClass } from './riskClassification.js';
+import { sha256Json } from '../utils/checksum.js';
 
 export interface AIPredictionResult {
   riskLevel: 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL';
@@ -24,10 +26,24 @@ export interface AIPredictionResult {
   importance: Record<string, number>;
   xai: XAIReport;
   aiEnhancedSummary?: string;
+  /** Reproducibility (Phase 8): which stored prediction row, engine/rules
+   *  version, and input this result came from — so it can be traced and
+   *  independently re-derived, never a silent/unexplained number. */
+  provenance: {
+    predictionId: string;
+    engineVersion: string;
+    rulesVersion: string;
+    inputHash: string;
+  };
 }
 
 export class AIEngineService {
   private static FEATURES = ['hemoglobin', 'hematocrit', 'testosteroneRatio', 'reticulocyte', 'epo', 'stabilityIndex'];
+
+  /** Deterministic risk/anomaly engine code version (Phase 8 reproducibility). Bump on logic changes. */
+  private static ENGINE_VERSION = 'nexus-ai-engine@1.1.0';
+  /** Physiological threshold/rules version (POP_LIMITS, calculateRiskClass bounds). Bump on threshold changes. */
+  private static RULES_VERSION = 'physio-thresholds@1.0.0';
 
   /**
    * Generates AI-driven risk prediction and anomaly detection with XAI
@@ -59,14 +75,14 @@ export class AIEngineService {
     const anomalyScore = anomaly.score;
 
     // 3. Risk Classification (Random Forest Logic)
-    const riskAnalysis = this.calculateRiskClass(latestFeatures);
+    const riskAnalysis = calculateRiskClass(latestFeatures as any);
 
     // 4. Generate Explainable AI Report
     let xaiReport = ExplainabilityService.generateReport(
       latestFeatures as any,
       dataPoints as any[],
       riskAnalysis.level,
-      riskAnalysis.probs,
+      riskAnalysis.probs as unknown as Record<string, number>,
       anomalyScore,
       isAnomaly
     );
@@ -80,6 +96,12 @@ export class AIEngineService {
       }
     }
 
+    // Reproducibility (Phase 8): hash the exact feature vector this
+    // prediction is derived from, so a given row can be independently
+    // re-checked — same inputHash + same engine/rules version must
+    // reproduce the same classification.
+    const inputHash = sha256Json(latestFeatures);
+
     // Persist to DB with XAI metrics
     const prediction = await db.aIPrediction.create({
       data: {
@@ -91,7 +113,7 @@ export class AIEngineService {
         isAtypical: isAnomaly,
         explanation: JSON.stringify(xaiReport.reasoning.findings),
         featureImportance: JSON.stringify(Object.fromEntries(xaiReport.impacts.map(i => [i.name, i.impactWeight]))),
-        
+
         // XAI Fields
         confidenceScore: xaiReport.confidence.score,
         reliabilityLabel: xaiReport.confidence.label,
@@ -105,8 +127,11 @@ export class AIEngineService {
         uncertaintyData: JSON.stringify({
           uncertainty: xaiReport.confidence.uncertainty
         }),
-        
-        modelInfo: "AI_PASS_V2_XAI_OPTIMIZED_PHASE6"
+
+        modelInfo: "AI_PASS_V2_XAI_OPTIMIZED_PHASE6",
+        engineVersion: this.ENGINE_VERSION,
+        rulesVersion: this.RULES_VERSION,
+        inputHash,
       }
     });
 
@@ -121,7 +146,13 @@ export class AIEngineService {
       explanation: xaiReport.reasoning.findings,
       importance: Object.fromEntries(xaiReport.impacts.map(i => [i.name, i.impactWeight])),
       xai: xaiReport,
-      aiEnhancedSummary: xaiReport.aiEnhancedSummary
+      aiEnhancedSummary: xaiReport.aiEnhancedSummary,
+      provenance: {
+        predictionId: prediction.id,
+        engineVersion: this.ENGINE_VERSION,
+        rulesVersion: this.RULES_VERSION,
+        inputHash,
+      }
     };
 
     // Phase 7: Real-time notification
@@ -146,19 +177,36 @@ export class AIEngineService {
   }
 
   private static prepareFeatures(athlete: any) {
-    return athlete.reports.map((report: any) => {
+    const points = athlete.reports.map((report: any) => {
       const results = report.testResults;
       const getVal = (p: string) => results.find((r: any) => r.parameter.toUpperCase().includes(p.toUpperCase()))?.value || 0;
-      
+
       return {
         hemoglobin: getVal('Hemoglobin'),
         hematocrit: getVal('Hematocrit'),
         testosteroneRatio: getVal('Testosterone'),
         reticulocyte: getVal('Reticulocyte'),
         epo: getVal('EPO'),
-        stabilityIndex: 85 // Mocked for now, would be calculated from previous turn's stats
       };
     });
+
+    // Real longitudinal signal (Phase 6), not a flat mock: how consistent
+    // this athlete's own readings have been across their history (excluding
+    // the latest, to avoid the latest point trivially "confirming" its own
+    // stability). It now genuinely varies per athlete based on their real
+    // data instead of being an identical constant (85) for every athlete
+    // regardless of history.
+    //
+    // Known limitation: applied uniformly across every point for this
+    // athlete (one value per athlete, not one per report), so it currently
+    // contributes no within-athlete variance to the z-score feature-
+    // importance calc or this athlete's own Isolation Forest training —
+    // only to comparisons ACROSS athletes with different history profiles.
+    // A per-report trailing-window version would close that gap; tracked
+    // as a refinement, not a blocker (this was previously a hardcoded
+    // constant with zero signal in any direction).
+    const stabilityIndex = computeStabilityIndex(points.slice(1));
+    return points.map((p: any) => ({ ...p, stabilityIndex }));
   }
 
   private static featureVector(f: any): number[] {
@@ -202,31 +250,6 @@ export class AIEngineService {
     return { score: Number(score.toFixed(3)), isAnomaly, maxZ: signals.maxZ, drivers: signals.drivers };
   }
 
-  private static calculateRiskClass(f: any) {
-    // Weighted logic simulating a Random Forest ensemble
-    let score = 0;
-    if (f.hemoglobin > 17.5) score += 35;
-    if (f.testosteroneRatio > 4) score += 40;
-    if (f.epo > 10) score += 40;
-    if (f.hematocrit > 52) score += 20;
-
-    let level = 'LOW';
-    let probs = { low: 0.9, moderate: 0.1, high: 0, critical: 0 };
-
-    if (score > 80) {
-      level = 'CRITICAL';
-      probs = { low: 0.05, moderate: 0.1, high: 0.25, critical: 0.6 };
-    } else if (score > 50) {
-      level = 'HIGH';
-      probs = { low: 0.1, moderate: 0.2, high: 0.5, critical: 0.2 };
-    } else if (score > 20) {
-      level = 'MODERATE';
-      probs = { low: 0.3, moderate: 0.5, high: 0.15, critical: 0.05 };
-    }
-
-    return { level, probs };
-  }
-
   private static calculateFeatureImportance(latest: any, history: any[]) {
     const importance: Record<string, number> = {};
     this.FEATURES.forEach(feat => {
@@ -265,24 +288,42 @@ export class AIEngineService {
   }
 
   /**
-   * Process and update athlete with AI insights
+   * Process and update athlete with AI insights.
+   *
+   * @param dataErrorParameters Biomarker names this upload's own extraction
+   *   validation already flagged as DATA_ERROR (likely OCR/parsing mistake
+   *   — see src/types/dataQuality.ts), e.g. from a report just ingested in
+   *   the same pipeline run. If the single strongest driver of a
+   *   CRITICAL/anomalous finding is one of these, it is far more likely a
+   *   mis-scanned document than a real doping-risk signal, so we raise a
+   *   lower-severity data-quality review alert instead of a CRITICAL one —
+   *   never silently drop the finding, but never let a probable data error
+   *   masquerade as a risk signal either.
    */
-  static async processAthleteAIUpdate(athleteId: string) {
+  static async processAthleteAIUpdate(athleteId: string, dataErrorParameters: string[] = []) {
     try {
       const aiResult = await this.analyzeAthleteAI(athleteId);
-      
-      // If AI detects critical risk, generate a high-severity alert
+
       if (aiResult.riskLevel === 'CRITICAL' || aiResult.anomaly.isAnomaly) {
-         await db.alert.create({
-           data: {
-             athleteId,
-             severity: 'CRITICAL',
-             message: `AI INTELLIGENCE ALERT: ${aiResult.explanation[0]}`,
-             isResolved: false
-           }
-         });
+        const reason = aiResult.explanation[0]
+          ?? `${aiResult.riskLevel} risk classification${aiResult.anomaly.isAnomaly ? ' with a detected physiological anomaly' : ''} — review the athlete's biological passport.`;
+
+        const dataErrorSet = new Set(dataErrorParameters.map((p) => p.toLowerCase()));
+        const topDriver = Object.entries(aiResult.importance).sort((a, b) => b[1] - a[1])[0]?.[0];
+        const likelyDataError = !!topDriver && dataErrorSet.has(topDriver.toLowerCase());
+
+        await db.alert.create({
+          data: {
+            athleteId,
+            severity: likelyDataError ? 'MODERATE' : 'CRITICAL',
+            message: likelyDataError
+              ? `DATA QUALITY REVIEW: The strongest driver of this ${aiResult.riskLevel.toLowerCase()} finding (${topDriver}) was independently flagged as a likely extraction/data error in the source document — verify against the original report before treating this as a risk signal.`
+              : `AI INTELLIGENCE ALERT: ${reason}`,
+            isResolved: false,
+          },
+        });
       }
-      
+
       return aiResult;
     } catch (error) {
       console.error("[AIEngine] Update failed:", error);

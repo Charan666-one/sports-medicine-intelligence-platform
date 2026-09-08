@@ -19,12 +19,14 @@ export const errorHandler = (
 
   // Log error
   logger.error(`${req.method} ${req.url} - ${message}`, {
+    requestId: req.id,
     stack: config.NODE_ENV === 'development' ? err.stack : undefined,
   });
 
   res.status(statusCode).json({
     status: 'error',
     message,
+    requestId: req.id,
     ...(config.NODE_ENV === 'development' && { stack: err.stack }),
   });
 };

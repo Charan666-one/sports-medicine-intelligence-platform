@@ -18,6 +18,12 @@ router.post('/', validate(createReportSchema), reportController.ReportController
  */
 router.post('/ingest', upload.single('file'), ReportIngestionController.ingestAutoMatch);
 
+/**
+ * @route GET /api/v1/reports/ingestion-jobs/:id
+ * @desc Poll the status of a queued/processing/completed ingestion job.
+ */
+router.get('/ingestion-jobs/:id', ReportIngestionController.getIngestionJobStatus);
+
 router.get('/:id', reportController.ReportController.getReportById);
 router.post('/:id/summary', reportController.ReportController.generateAISummary);
 

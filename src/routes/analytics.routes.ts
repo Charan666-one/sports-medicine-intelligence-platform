@@ -6,6 +6,7 @@ import {
   getLongitudinal,
 } from '../controllers/analytics.controller.js';
 import { runGlobalAudit } from '../controllers/stats.controller.js';
+import { restrictTo } from '../middlewares/auth.middleware.js';
 
 // Mounted at /api/v1/analytics
 export const analyticsRouter = Router();
@@ -16,4 +17,4 @@ export const antiDopingRouter = Router();
 antiDopingRouter.get('/overview', getAntiDopingOverview);
 antiDopingRouter.get('/marker-variance', getMarkerVariance);
 antiDopingRouter.get('/longitudinal', getLongitudinal);
-antiDopingRouter.post('/run-audit', runGlobalAudit);
+antiDopingRouter.post('/run-audit', restrictTo('ADMIN'), runGlobalAudit);

@@ -24,6 +24,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 const TOKEN_KEY = 'nexus_token';
+const REFRESH_TOKEN_KEY = 'nexus_refresh_token';
 
 export function getAuthToken(): string | null {
   try {
@@ -43,12 +44,68 @@ export function setAuthToken(token: string | null): void {
   }
 }
 
-/** Called when the server rejects the token (401). Clears it and signals the app. */
+export function getRefreshToken(): string | null {
+  try {
+    return typeof window !== 'undefined' ? window.localStorage.getItem(REFRESH_TOKEN_KEY) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setRefreshToken(token: string | null): void {
+  try {
+    if (typeof window === 'undefined') return;
+    if (token) window.localStorage.setItem(REFRESH_TOKEN_KEY, token);
+    else window.localStorage.removeItem(REFRESH_TOKEN_KEY);
+  } catch {
+    /* ignore storage errors */
+  }
+}
+
+/** Called when the server rejects the token (401) and refresh also failed/unavailable. */
 function onUnauthorized(): void {
   setAuthToken(null);
+  setRefreshToken(null);
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('nexus:unauthorized'));
   }
+}
+
+/**
+ * Access tokens are short-lived (see JWT_EXPIRES_IN) by design — sessions
+ * stay alive via this refresh instead. Concurrent 401s share one in-flight
+ * refresh (the refresh token is single-use/rotated, so firing it twice in
+ * parallel would invalidate the second caller's attempt).
+ */
+let refreshInFlight: Promise<boolean> | null = null;
+
+async function tryRefreshSession(): Promise<boolean> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return false;
+
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      try {
+        const res = await fetch('/api/v1/auth/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken }),
+        });
+        if (!res.ok) return false;
+        const json = await res.json();
+        const data = json?.data ?? json;
+        if (!data?.token || !data?.refreshToken) return false;
+        setAuthToken(data.token);
+        setRefreshToken(data.refreshToken);
+        return true;
+      } catch {
+        return false;
+      } finally {
+        refreshInFlight = null;
+      }
+    })();
+  }
+  return refreshInFlight;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -269,6 +326,25 @@ export interface ReportListData {
   pagination?: PaginationMeta;
 }
 
+/** Status of an asynchronous ingestion job (Phase 3: queue-backed OCR/parse/risk pipeline). */
+export interface IngestionJobStatus {
+  ingestionJobId: string;
+  status: 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'DEAD_LETTER';
+  stage: string | null;
+  progress: number;
+  reportId: string | null;
+  athleteId: string | null;
+  error: string | null;
+  result: {
+    biomarkerCount: number;
+    riskLevel: string | null;
+    isAnomaly: boolean | null;
+    validationStatus: string;
+    athleteId: string;
+    athleteName: string;
+  } | null;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Alert Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -335,6 +411,7 @@ class ApiClient {
       formData?: FormData;
       query?: Record<string, string | number | boolean | undefined | null>;
     } = {},
+    isRetry = false,
   ): Promise<ApiResponse<T>> {
     const url = new URL(
       `${this.baseUrl}${path}`,
@@ -399,8 +476,14 @@ class ApiClient {
 
     // Non-2xx: surface the server's error message before normalising
     if (!response.ok) {
-      // Session expired / invalid — clear the token and let the app redirect.
-      if (response.status === 401 && path !== '/auth/login' && path !== '/auth/register') {
+      const isAuthEndpoint = path === '/auth/login' || path === '/auth/register' || path === '/auth/refresh';
+      if (response.status === 401 && !isAuthEndpoint) {
+        // Access token expired — try one silent refresh-and-retry before
+        // giving up on the session (short-lived tokens make this the
+        // common case, not the exception).
+        if (!isRetry && (await tryRefreshSession())) {
+          return this.request<T>(method, path, options, true);
+        }
         onUnauthorized();
       }
       throw new ApiError({
@@ -559,6 +642,19 @@ export const athleteAPI = {
   },
 
   /**
+   * POST /api/v1/athletes/:id/ingest
+   * Queues a report for asynchronous ingestion against a known athlete.
+   * Returns immediately with a QUEUED IngestionJobStatus — follow up with
+   * `reportAPI.pollIngestionJob` / `reportAPI.getIngestionJob`.
+   */
+  ingestReport(id: string, formData: FormData): Promise<ApiResponse<IngestionJobStatus>> {
+    return client.postForm<IngestionJobStatus>(
+      `/athletes/${encodeURIComponent(id)}/ingest`,
+      formData,
+    );
+  },
+
+  /**
    * POST /api/v1/athletes/:id/recalculate
    * Triggers a risk score recalculation for a single athlete.
    */
@@ -608,6 +704,51 @@ export const reportAPI = {
   uploadReport(formData: FormData): Promise<ApiResponse<MedicalReport>> {
     return client.postForm<MedicalReport>('/reports/upload', formData);
   },
+
+  /**
+   * POST /api/v1/reports/ingest
+   * Queues a report for asynchronous ingestion (auto-matches the athlete).
+   * Returns immediately with a QUEUED IngestionJobStatus — the OCR/parse/
+   * risk pipeline runs off-request in the worker process. Follow up with
+   * `getIngestionJob` / `pollIngestionJob`.
+   */
+  ingestAutoMatch(formData: FormData): Promise<ApiResponse<IngestionJobStatus>> {
+    return client.postForm<IngestionJobStatus>('/reports/ingest', formData);
+  },
+
+  /**
+   * GET /api/v1/reports/ingestion-jobs/:id
+   * Polls the status of a previously-queued ingestion job.
+   */
+  getIngestionJob(jobId: string): Promise<ApiResponse<IngestionJobStatus>> {
+    return client.get<IngestionJobStatus>(`/reports/ingestion-jobs/${encodeURIComponent(jobId)}`);
+  },
+
+  /**
+   * Polls `getIngestionJob` until it reaches a terminal state
+   * (COMPLETED / FAILED / DEAD_LETTER) or `timeoutMs` elapses.
+   * Used by upload UIs so they can await the real ingestion result instead
+   * of the immediate 202/QUEUED response.
+   */
+  async pollIngestionJob(
+    jobId: string,
+    opts: { intervalMs?: number; timeoutMs?: number } = {},
+  ): Promise<IngestionJobStatus> {
+    const intervalMs = opts.intervalMs ?? 1500;
+    const timeoutMs = opts.timeoutMs ?? 120_000;
+    const deadline = Date.now() + timeoutMs;
+    const TERMINAL = new Set(['COMPLETED', 'FAILED', 'DEAD_LETTER']);
+
+    while (true) {
+      const res = await reportAPI.getIngestionJob(jobId);
+      const job = res.data as IngestionJobStatus | undefined;
+      if (job && TERMINAL.has(job.status)) return job;
+      if (Date.now() >= deadline) {
+        throw new Error('Timed out waiting for ingestion to complete. Check the reports list shortly.');
+      }
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+  },
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -641,23 +782,51 @@ export interface AuthUser {
   email: string;
   name: string;
   role?: { id: string; name: string } | null;
+  mfaEnabled?: boolean;
   [key: string]: unknown;
 }
 
 export interface AuthPayload {
   token: string;
+  refreshToken: string;
   user: AuthUser;
 }
 
+/** Returned by /auth/login (and /auth/mfa/challenge on a wrong code, never on success) when the account has MFA enabled — no session tokens yet. */
+export interface MfaRequiredPayload {
+  mfaRequired: true;
+  mfaToken: string;
+}
+
 export const authAPI = {
-  login(email: string, password: string): Promise<ApiResponse<AuthPayload>> {
-    return client.post<AuthPayload>('/auth/login', { email, password });
+  login(email: string, password: string): Promise<ApiResponse<AuthPayload | MfaRequiredPayload>> {
+    return client.post<AuthPayload | MfaRequiredPayload>('/auth/login', { email, password });
   },
   register(input: { email: string; password: string; name: string; organizationName?: string }): Promise<ApiResponse<AuthPayload>> {
     return client.post<AuthPayload>('/auth/register', input);
   },
   me(): Promise<ApiResponse<{ user: AuthUser }>> {
     return client.get<{ user: AuthUser }>('/auth/me');
+  },
+  /** Revokes the current refresh token (logout on this device). Best-effort. */
+  logout(refreshToken: string): Promise<ApiResponse<{ message: string }>> {
+    return client.post<{ message: string }>('/auth/logout', { refreshToken });
+  },
+  /** Second step of an MFA-gated login: exchanges the mfaToken + a TOTP/backup code for real session tokens. */
+  mfaChallenge(mfaToken: string, code: string): Promise<ApiResponse<AuthPayload>> {
+    return client.post<AuthPayload>('/auth/mfa/challenge', { mfaToken, code });
+  },
+  /** Starts MFA enrollment for the current (authenticated) user; not yet enabled. */
+  mfaSetup(): Promise<ApiResponse<{ otpauthUrl: string; qrCodeDataUrl: string }>> {
+    return client.post<{ otpauthUrl: string; qrCodeDataUrl: string }>('/auth/mfa/setup', {});
+  },
+  /** Confirms enrollment with a real authenticator code; returns one-time backup codes. */
+  mfaEnable(code: string): Promise<ApiResponse<{ backupCodes: string[] }>> {
+    return client.post<{ backupCodes: string[] }>('/auth/mfa/enable', { code });
+  },
+  /** Disables MFA. Requires the current password as a safety check. */
+  mfaDisable(password: string): Promise<ApiResponse<{ message: string }>> {
+    return client.post<{ message: string }>('/auth/mfa/disable', { password });
   },
 } as const;
 

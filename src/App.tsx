@@ -14,6 +14,7 @@ import AthleteDetail from './pages/AthleteDetail.js';
 import Reports from './pages/Reports.js';
 import AntiDoping from './pages/AntiDoping.js';
 import Alerts from './pages/Alerts.js';
+import Settings from './pages/Settings.js';
 import Login from './pages/Login.js';
 import { AnimatePresence, motion } from 'motion/react';
 import { AuthProvider, useAuth } from './context/AuthContext.js';
@@ -63,6 +64,7 @@ function Gate() {
               <Route path="/reports" element={<PageWrapper><Reports /></PageWrapper>} />
               <Route path="/anti-doping" element={<PageWrapper><AntiDoping /></PageWrapper>} />
               <Route path="/alerts" element={<PageWrapper><Alerts /></PageWrapper>} />
+              <Route path="/settings" element={<PageWrapper><Settings /></PageWrapper>} />
             </Routes>
           </AnimatePresence>
         </main>

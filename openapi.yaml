@@ -1,0 +1,688 @@
+openapi: 3.0.3
+info:
+  title: NEXUS Sports Medicine Intelligence Platform API
+  description: >
+    Athlete intelligence and anti-doping risk-screening API. All endpoints
+    under `/api/v1` except `/auth/register` and `/auth/login` require a
+    Bearer JWT and are scoped to the caller's organization (tenant
+    isolation is enforced server-side on every read/write — org membership
+    is never taken from the request body).
+
+    This is a statistical risk-screening tool: risk/anomaly findings are
+    never a doping determination, only an indicator for human analyst
+    review.
+  version: '1.0'
+  license:
+    name: Apache-2.0
+servers:
+  - url: /
+    description: Same-origin (the API and frontend are served from one process)
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Auth
+  - name: MFA
+    description: TOTP multi-factor authentication (opt-in per account)
+  - name: Athletes
+  - name: Reports
+  - name: Ingestion
+    description: Asynchronous report upload/processing pipeline
+  - name: Alerts
+  - name: Inspections
+  - name: Analytics
+  - name: Anti-Doping
+  - name: Stats
+  - name: Operations
+    description: Health checks and metrics — not versioned under /api/v1
+
+paths:
+  # ── Operations (unauthenticated) ──────────────────────────────────────
+  /api/health:
+    get:
+      tags: [Operations]
+      summary: Liveness probe
+      description: Always 200 if the process is up. Checks no external dependency — safe for a restart decision.
+      security: []
+      responses:
+        '200':
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  timestamp: { type: string, format: date-time }
+                  version: { type: string }
+
+  /api/health/ready:
+    get:
+      tags: [Operations]
+      summary: Readiness probe
+      description: Checks Postgres and Redis connectivity with a 2s timeout each. 503 if either is unreachable — safe for a load-balancer routing decision.
+      security: []
+      responses:
+        '200': { description: Ready to serve traffic }
+        '503': { description: A dependency is unreachable }
+
+  /api/metrics:
+    get:
+      tags: [Operations]
+      summary: Prometheus metrics (API process)
+      description: >
+        Text-format metrics — default Node process metrics and
+        http_request_duration_seconds. ingestion_jobs_total is on the
+        WORKER process's own metrics server instead (default port 9091,
+        not part of this API) since it's a separate OS process — see
+        DEPLOY.md.
+      security: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          description: 'Bearer <METRICS_TOKEN>, only required if METRICS_TOKEN is configured.'
+          schema: { type: string }
+      responses:
+        '200':
+          description: Prometheus text format
+          content:
+            text/plain: { schema: { type: string } }
+        '401': { description: METRICS_TOKEN is configured and the bearer token is missing/wrong }
+
+  # ── Auth ───────────────────────────────────────────────────────────────
+  /api/v1/auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new account
+      description: Always provisions a new, isolated organization with the registrant as its ADMIN — self-registration can never attach to an existing tenant.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, name]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8 }
+                name: { type: string }
+                organizationName: { type: string, description: 'Defaults to "<name>''s Workspace" if omitted.' }
+      responses:
+        '201':
+          description: Account created, session issued
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthSessionEnvelope' }
+        '400': { description: "Validation error, or the email is already registered" }
+
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in
+      description: Returns real session tokens, OR — if the account has MFA enabled — an mfaRequired payload with a short-lived mfaToken instead (see /auth/mfa/challenge).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200':
+          description: Either a full session, or an MFA challenge
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/AuthSessionEnvelope'
+                  - $ref: '#/components/schemas/MfaRequiredEnvelope'
+        '401': { description: Invalid email or password }
+
+  /api/v1/auth/mfa/challenge:
+    post:
+      tags: [MFA]
+      summary: Complete an MFA-gated login
+      description: Exchanges the mfaToken from /auth/login plus a live TOTP code (or an unused backup code) for real session tokens. The mfaToken is rejected by every other authenticated endpoint even if presented as a normal bearer token.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mfaToken, code]
+              properties:
+                mfaToken: { type: string }
+                code: { type: string, description: '6-digit TOTP code, or one of the 10-character backup codes' }
+      responses:
+        '200':
+          description: Session issued
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/AuthSessionEnvelope' } }
+        '401': { description: "Invalid/expired mfaToken, or an invalid code" }
+
+  /api/v1/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Rotate a refresh token for a new access token
+      description: The presented refresh token is consumed (single-use). Reusing an already-rotated token outside a short grace window is treated as theft and revokes every active session for that user.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [refreshToken], properties: { refreshToken: { type: string } } }
+      responses:
+        '200': { description: "New session issued", content: { application/json: { schema: { $ref: '#/components/schemas/AuthSessionEnvelope' } } } }
+        '401': { description: "Invalid, expired, or reused refresh token" }
+
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoke the current refresh token (logout on this device)
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, properties: { refreshToken: { type: string } } }
+      responses:
+        '200': { description: Logged out (best-effort even if the token was already invalid) }
+
+  /api/v1/auth/me:
+    get:
+      tags: [Auth]
+      summary: Get the current authenticated user
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  data: { type: object, properties: { user: { $ref: '#/components/schemas/AuthUser' } } }
+        '401': { description: Not authenticated }
+
+  /api/v1/auth/mfa/setup:
+    post:
+      tags: [MFA]
+      summary: Start MFA enrollment
+      description: Generates a pending TOTP secret and returns a QR code. Does NOT enable MFA yet — see /auth/mfa/enable.
+      responses:
+        '200':
+          description: Setup material
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  data:
+                    type: object
+                    properties:
+                      otpauthUrl: { type: string }
+                      qrCodeDataUrl: { type: string, description: 'data:image/png;base64,... — render directly in an <img>' }
+        '401': { description: Not authenticated }
+
+  /api/v1/auth/mfa/enable:
+    post:
+      tags: [MFA]
+      summary: Confirm MFA enrollment
+      description: Proves possession of the secret from /auth/mfa/setup with a real code. On success, enables MFA and returns 8 one-time backup codes (shown once — only bcrypt hashes are stored).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [code], properties: { code: { type: string } } }
+      responses:
+        '200':
+          description: MFA enabled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  data: { type: object, properties: { backupCodes: { type: array, items: { type: string }, minItems: 8, maxItems: 8 } } }
+        '400': { description: "Invalid code, or no pending setup exists" }
+        '401': { description: Not authenticated }
+
+  /api/v1/auth/mfa/disable:
+    post:
+      tags: [MFA]
+      summary: Disable MFA
+      description: Requires re-entering the current password as a safety check.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [password], properties: { password: { type: string } } }
+      responses:
+        '200': { description: MFA disabled }
+        '401': { description: "Incorrect password, or not authenticated" }
+
+  # ── Stats ──────────────────────────────────────────────────────────────
+  /api/v1/stats:
+    get:
+      tags: [Stats]
+      summary: Dashboard summary stats for the caller's organization
+      responses:
+        '200': { description: "Aggregate counts (athletes, alerts, reports, avg risk, OCR extraction rate)" }
+
+  /api/v1/audit:
+    post:
+      tags: [Stats]
+      summary: Run a system-wide audit log entry (ADMIN only)
+      responses:
+        '200': { description: Audit recorded }
+        '403': { description: Caller is not an ADMIN }
+
+  # ── Athletes ───────────────────────────────────────────────────────────
+  /api/v1/athletes:
+    get:
+      tags: [Athletes]
+      summary: List all athletes in the caller's organization
+      responses:
+        '200': { description: Athlete list with latest risk score/AI prediction per athlete }
+    post:
+      tags: [Athletes]
+      summary: Register a new athlete (ADMIN only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, dateOfBirth, gender, nationality, sport]
+              properties:
+                name: { type: string, minLength: 2 }
+                dateOfBirth: { type: string, format: date }
+                gender: { type: string, enum: [Male, Female, Other] }
+                nationality: { type: string, minLength: 2 }
+                sport: { type: string, minLength: 2 }
+      responses:
+        '201': { description: Athlete created }
+        '403': { description: Caller is not an ADMIN }
+
+  /api/v1/athletes/recalculate-all:
+    post:
+      tags: [Athletes]
+      summary: Recalculate risk + AI analysis for every athlete in the org (ADMIN only)
+      responses:
+        '200': { description: Per-athlete recalculation summary }
+        '403': { description: Caller is not an ADMIN }
+
+  /api/v1/athletes/{id}:
+    get:
+      tags: [Athletes]
+      summary: Get a single athlete's full profile
+      parameters: [{ $ref: '#/components/parameters/AthleteId' }]
+      responses:
+        '200': { description: "Athlete detail including recent reports, risk assessment, and AI insights" }
+        '404': { description: Not found in the caller's organization }
+
+  /api/v1/athletes/{id}/statistics:
+    get:
+      tags: [Athletes]
+      summary: Longitudinal statistical analysis (anomaly z-scores, change-point detection)
+      parameters: [{ $ref: '#/components/parameters/AthleteId' }]
+      responses:
+        '200': { description: Per-parameter statistical findings }
+        '404': { description: Not found in the caller's organization }
+
+  /api/v1/athletes/{id}/ai-analysis:
+    post:
+      tags: [Athletes]
+      summary: Trigger a manual AI risk/anomaly analysis run for this athlete
+      parameters: [{ $ref: '#/components/parameters/AthleteId' }]
+      responses:
+        '200': { description: AI analysis result }
+        '404': { description: Not found in the caller's organization }
+
+  /api/v1/athletes/{id}/recalculate:
+    post:
+      tags: [Athletes]
+      summary: Recalculate the deterministic risk engine score, then re-run AI analysis
+      parameters: [{ $ref: '#/components/parameters/AthleteId' }]
+      responses:
+        '200': { description: Recalculation result }
+        '404': { description: Not found in the caller's organization }
+
+  /api/v1/athletes/{athleteId}/ingest:
+    post:
+      tags: [Ingestion]
+      summary: Upload a medical report for a specific (known) athlete
+      description: Asynchronous — validates and queues the upload (202 Accepted), then a worker process runs OCR/parsing/risk-analysis off the request path. Poll /reports/ingestion-jobs/{id} or listen for the ingestion:completed/ingestion:failed Socket.IO events.
+      parameters: [{ $ref: '#/components/parameters/AthleteIdPath' }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [report]
+              properties:
+                report: { type: string, format: binary, description: 'PDF, JPG, PNG, or CSV — 10MB max' }
+      responses:
+        '202': { description: "Queued", content: { application/json: { schema: { $ref: '#/components/schemas/IngestionJobEnvelope' } } } }
+        '200': { description: "Duplicate upload (same checksum) — returns the existing job, already-COMPLETED or in-progress" }
+        '400': { description: "No file uploaded, or an invalid file type" }
+        '404': { description: Athlete not found in the caller's organization }
+
+  /api/v1/athletes/{athleteId}/ingestion-history:
+    get:
+      tags: [Ingestion]
+      summary: Full report/ingestion history for an athlete
+      parameters: [{ $ref: '#/components/parameters/AthleteIdPath' }]
+      responses:
+        '200': { description: Reports with their extracted test results }
+
+  /api/v1/athletes/{athleteId}/assistant/ask:
+    post:
+      tags: [Athletes]
+      summary: Ask the deterministic natural-language investigation assistant about an athlete
+      description: No LLM involved — template responses built entirely from the athlete's real stored data (risk level, findings, biomarker values).
+      parameters: [{ $ref: '#/components/parameters/AthleteIdPath' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [query], properties: { query: { type: string } } }
+      responses:
+        '200': { description: Assistant response with follow-up suggestions }
+        '400': { description: Missing query }
+        '404': { description: Athlete not found in the caller's organization }
+
+  # ── Reports / Ingestion ───────────────────────────────────────────────
+  /api/v1/reports:
+    get:
+      tags: [Reports]
+      summary: List all reports in the caller's organization
+      responses:
+        '200': { description: Reports with their athlete and test results }
+    post:
+      tags: [Reports]
+      summary: Create a report record directly (no file/OCR — for pre-parsed data)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, athleteId]
+              properties:
+                type: { type: string, enum: [BLOOD, URINE, BIOLOGICAL_PASSPORT, WEARABLE_LOG] }
+                athleteId: { type: string }
+                description: { type: string, maxLength: 2000 }
+      responses:
+        '201': { description: Report created }
+        '404': { description: athleteId not found in the caller's organization }
+
+  /api/v1/reports/ingest:
+    post:
+      tags: [Ingestion]
+      summary: Upload a medical report WITHOUT pre-selecting an athlete
+      description: The athlete is auto-detected from the parsed document text, then the file name, and matched to an existing athlete or a new one is created. Asynchronous — same 202-and-poll contract as the per-athlete ingest endpoint.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '202': { description: "Queued", content: { application/json: { schema: { $ref: '#/components/schemas/IngestionJobEnvelope' } } } }
+        '200': { description: Duplicate upload — returns the existing job }
+        '400': { description: "No file uploaded, or an invalid file type" }
+
+  /api/v1/reports/ingestion-jobs/{id}:
+    get:
+      tags: [Ingestion]
+      summary: Poll the status of a queued/processing/completed ingestion job
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: "Job status", content: { application/json: { schema: { $ref: '#/components/schemas/IngestionJobEnvelope' } } } }
+        '404': { description: Job not found in the caller's organization }
+
+  /api/v1/reports/{id}:
+    get:
+      tags: [Reports]
+      summary: Get a single report with its test results
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Report detail }
+        '404': { description: Not found in the caller's organization }
+
+  /api/v1/reports/{id}/summary:
+    post:
+      tags: [Reports]
+      summary: Generate an AI-enhanced (or deterministic-fallback) medical summary for a report
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Summary text }
+        '404': { description: Not found in the caller's organization }
+
+  # ── Alerts ─────────────────────────────────────────────────────────────
+  /api/v1/alerts:
+    get:
+      tags: [Alerts]
+      summary: List the most recent alerts (max 50) for the caller's organization
+      responses:
+        '200': { description: "Alerts, newest first" }
+
+  /api/v1/alerts/{id}/resolve:
+    patch:
+      tags: [Alerts]
+      summary: Mark an alert resolved
+      parameters: [{ $ref: '#/components/parameters/AlertId' }]
+      responses:
+        '200': { description: Alert marked resolved }
+        '404': { description: Not found in the caller's organization }
+
+  /api/v1/alerts/{id}/escalate:
+    patch:
+      tags: [Alerts]
+      summary: Escalate an alert to CRITICAL severity
+      parameters: [{ $ref: '#/components/parameters/AlertId' }]
+      responses:
+        '200': { description: Alert escalated }
+        '404': { description: Not found in the caller's organization }
+
+  # ── Inspections ────────────────────────────────────────────────────────
+  /api/v1/inspections:
+    post:
+      tags: [Inspections]
+      summary: Open a manual inspection case for an athlete
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [athleteId, title]
+              properties:
+                athleteId: { type: string }
+                title: { type: string, minLength: 2 }
+                description: { type: string, maxLength: 5000 }
+                priority: { type: string, enum: [LOW, MEDIUM, HIGH, CRITICAL] }
+                assignedTo: { type: string }
+      responses:
+        '201': { description: Inspection created }
+        '404': { description: athleteId not found in the caller's organization }
+
+  /api/v1/inspections/athlete/{athleteId}:
+    get:
+      tags: [Inspections]
+      summary: List all inspections for an athlete
+      parameters: [{ $ref: '#/components/parameters/AthleteIdPath' }]
+      responses:
+        '200': { description: "Inspections, newest first" }
+
+  /api/v1/inspections/{id}:
+    patch:
+      tags: [Inspections]
+      summary: Update an inspection (whitelisted fields only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                description: { type: string }
+                status: { type: string }
+                priority: { type: string, enum: [LOW, MEDIUM, HIGH, CRITICAL] }
+                assignedTo: { type: string }
+                findings: { type: string }
+                athleteId: { type: string, description: 'Reassigning to a different athlete requires that athlete to also be in the caller''s organization.' }
+      responses:
+        '200': { description: Inspection updated }
+        '404': { description: Not found in the caller's organization }
+
+  # ── Analytics / Anti-Doping ────────────────────────────────────────────
+  /api/v1/analytics/risk-trend:
+    get:
+      tags: [Analytics]
+      summary: Monthly average risk score + report volume (drives the dashboard trend chart)
+      parameters:
+        - name: months
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 24, default: 6 }
+      responses:
+        '200': { description: Monthly buckets }
+
+  /api/v1/anti-doping/overview:
+    get:
+      tags: [Anti-Doping]
+      summary: High-level anti-doping intelligence summary for the organization
+      responses:
+        '200': { description: "Athlete/report counts, compliance rate, audit status" }
+
+  /api/v1/anti-doping/marker-variance:
+    get:
+      tags: [Anti-Doping]
+      summary: Roster-average biomarker levels as % of clinical baseline (radar chart data)
+      responses:
+        '200': { description: Per-marker variance }
+
+  /api/v1/anti-doping/longitudinal:
+    get:
+      tags: [Anti-Doping]
+      summary: Time series of a single biomarker across all athletes in the org
+      parameters:
+        - name: parameter
+          in: query
+          schema: { type: string, default: Hemoglobin }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 40 }
+      responses:
+        '200': { description: Ordered biomarker series }
+
+  /api/v1/anti-doping/run-audit:
+    post:
+      tags: [Anti-Doping]
+      summary: Run a global audit sweep across all athletes (ADMIN only)
+      responses:
+        '200': { description: Audit summary }
+        '403': { description: Caller is not an ADMIN }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    AthleteId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    AthleteIdPath:
+      name: athleteId
+      in: path
+      required: true
+      schema: { type: string }
+    AlertId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+
+  schemas:
+    AuthUser:
+      type: object
+      properties:
+        id: { type: string }
+        email: { type: string, format: email }
+        name: { type: string }
+        organizationId: { type: string }
+        mfaEnabled: { type: boolean }
+        role: { type: object, properties: { id: { type: string }, name: { type: string } } }
+
+    AuthSessionEnvelope:
+      type: object
+      properties:
+        status: { type: string, example: success }
+        data:
+          type: object
+          properties:
+            token: { type: string, description: 'Short-lived (15m default) JWT access token' }
+            refreshToken: { type: string, description: 'Opaque, single-use, rotated on every /auth/refresh call' }
+            user: { $ref: '#/components/schemas/AuthUser' }
+
+    MfaRequiredEnvelope:
+      type: object
+      properties:
+        status: { type: string, example: success }
+        data:
+          type: object
+          properties:
+            mfaRequired: { type: boolean, example: true }
+            mfaToken: { type: string, description: '5-minute token — exchange via POST /auth/mfa/challenge' }
+
+    IngestionJobEnvelope:
+      type: object
+      properties:
+        status: { type: string }
+        message: { type: string }
+        data:
+          type: object
+          properties:
+            ingestionJobId: { type: string }
+            status: { type: string, enum: [QUEUED, PROCESSING, COMPLETED, FAILED, DEAD_LETTER] }
+            stage: { type: string, nullable: true, enum: [OCR_PARSING, ATHLETE_RESOLVED, VALIDATION, DATA_PERSISTENCE, AI_SCAN, COMPLETED] }
+            progress: { type: integer, minimum: 0, maximum: 100 }
+            reportId: { type: string, nullable: true }
+            athleteId: { type: string, nullable: true }
+            error: { type: string, nullable: true }
+            result: { type: object, nullable: true, description: 'Present once COMPLETED — biomarker count, risk level, validation status' }

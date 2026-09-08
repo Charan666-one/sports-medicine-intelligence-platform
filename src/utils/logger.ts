@@ -1,5 +1,6 @@
 import pino from 'pino';
 import pinoHttp from 'pino-http';
+import crypto from 'crypto';
 import { config } from '../config/index.js';
 
 const isProd = config.NODE_ENV === 'production';
@@ -43,11 +44,26 @@ export const logger = {
   debug: (message: string, meta?: unknown) => pinoInstance.debug(meta ?? {}, message),
 };
 
-/** HTTP request logger middleware (replaces morgan). */
+/**
+ * HTTP request logger middleware (replaces morgan). Every request gets a
+ * request ID (Phase 10 API quality): reused from an inbound `X-Request-Id`
+ * header if an upstream proxy/load balancer already set one, otherwise a
+ * fresh UUID. It's attached to every log line for that request (via
+ * pino-http's genReqId) AND echoed back as a response header, so a client
+ * report ("this request failed") can be correlated straight to server logs.
+ */
 export const httpLogger = pinoHttp({
   logger: pinoInstance,
-  // Quieten health checks; keep everything else.
-  autoLogging: { ignore: (req) => req.url === '/api/health' },
+  genReqId: (req, res) => {
+    const existing = req.headers['x-request-id'];
+    const id = (typeof existing === 'string' && existing) || crypto.randomUUID();
+    res.setHeader('X-Request-Id', id);
+    return id;
+  },
+  // Quieten health checks and metrics scraping; keep everything else.
+  autoLogging: {
+    ignore: (req) => req.url === '/api/health' || req.url === '/api/health/ready' || req.url === '/api/metrics',
+  },
   customLogLevel: (_req, res, err) => {
     if (err || res.statusCode >= 500) return 'error';
     if (res.statusCode >= 400) return 'warn';

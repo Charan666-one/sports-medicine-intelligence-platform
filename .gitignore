@@ -9,18 +9,19 @@ node_modules
 # Build output
 dist
 .vite
+coverage
 
 # Runtime data
 uploads
-dev.db
-prisma/dev.db
-prisma/*.db-journal
-
-# ML service artifacts
-ml-service/saved_models
+# Legacy SQLite artifacts (project uses PostgreSQL)
+*.db
+*.db-journal
 
 # OCR model data (downloaded by `npm run setup`)
 data/tessdata
+
+# Local Redis persistence snapshot (redis-server run from the repo root)
+dump.rdb
 
 # OS / editor cruft
 .DS_Store

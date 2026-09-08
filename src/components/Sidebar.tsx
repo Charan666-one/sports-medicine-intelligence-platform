@@ -1,8 +1,10 @@
-import { Activity, Users, ClipboardList, ShieldCheck, Bell } from 'lucide-react';
+import { Activity, Users, ClipboardList, ShieldCheck, Bell, Settings } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext.js';
 
 export default function Sidebar() {
   const location = useLocation();
+  const { user } = useAuth();
 
   const navItems = [
     { icon: Activity, label: 'Dashboard', path: '/' },
@@ -10,7 +12,16 @@ export default function Sidebar() {
     { icon: ClipboardList, label: 'Lab Reports', path: '/reports' },
     { icon: ShieldCheck, label: 'Anti-Doping', path: '/anti-doping' },
     { icon: Bell, label: 'Alerts', path: '/alerts' },
+    { icon: Settings, label: 'Settings', path: '/settings' },
   ];
+
+  const initials = (user?.name ?? '')
+    .split(' ')
+    .map((p) => p[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('')
+    .toUpperCase() || '?';
 
   return (
     <aside className="w-64 bg-slate-900 text-slate-300 hidden md:flex flex-col border-r border-slate-800 h-screen sticky top-0">
@@ -40,13 +51,18 @@ export default function Sidebar() {
       </nav>
       
       <div className="p-4 border-t border-slate-800">
-        <div className="flex items-center gap-3 px-2 py-3 rounded-lg hover:bg-slate-800 cursor-pointer transition-colors group">
-          <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-xs font-medium group-hover:ring-2 group-hover:ring-blue-500 transition-all">SS</div>
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-white truncate">Dr. Sarah Smith</p>
-            <p className="text-xs text-slate-500 truncate">Chief Medical Officer</p>
+        <Link
+          to="/settings"
+          className="flex items-center gap-3 px-2 py-3 rounded-lg hover:bg-slate-800 cursor-pointer transition-colors group"
+        >
+          <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-xs font-medium group-hover:ring-2 group-hover:ring-blue-500 transition-all">
+            {initials}
           </div>
-        </div>
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-white truncate">{user?.name ?? 'Account'}</p>
+            <p className="text-xs text-slate-500 truncate">{user?.role?.name ?? user?.email ?? ''}</p>
+          </div>
+        </Link>
       </div>
     </aside>
   );

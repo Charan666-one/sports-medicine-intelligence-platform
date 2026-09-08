@@ -4,7 +4,7 @@
  * Steps:
  *   1. Ensure a `.env` file exists (copied from `.env.example` if missing).
  *   2. Generate the Prisma client.
- *   3. Push the schema into the SQLite database (creates dev.db).
+ *   3. Apply Prisma migrations to the configured PostgreSQL database.
  *   4. Seed the database with demo data.
  *
  * Run with:  npm run setup
@@ -78,9 +78,12 @@ if (!existsSync(tessFile)) {
   console.log('✔ OCR model already present.');
 }
 
-// 3-5. Prisma client + database + seed
+// 3-5. Prisma client + migrations + seed (PostgreSQL).
+//   Requires a reachable Postgres (see docker-compose `db` service or a local
+//   cluster). `migrate deploy` applies committed migrations idempotently.
 run('npx prisma generate');
-run('npx prisma db push');
+run('npx prisma migrate deploy');
 run('npx prisma db seed');
 
 console.log('\n✅ Setup complete. Start the app with:  npm run dev');
+console.log('   Need a database? `docker compose up -d db` starts local Postgres.');
