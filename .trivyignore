@@ -19,3 +19,6 @@ CVE-2026-69152
 CVE-2026-69192
 CVE-2026-33671
 CVE-2026-48815
+# pacote (npm's own package-fetch/extract tool, install-time only) — newly
+# flagged after a Trivy DB update, same rationale as above.
+CVE-2026-9496
